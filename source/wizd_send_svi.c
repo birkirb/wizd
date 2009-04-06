@@ -4,8 +4,8 @@
 // wizd:	MediaWiz Server daemon.
 //
 // 		wizd_send_svi.c
-//											$Revision: 1.8 $
-//											$Date: 2004/10/10 07:26:56 $
+//											$Revision: 1.19 $
+//											$Date: 2006/05/20 05:06:59 $
 //
 //	すべて自己責任でおながいしまつ。
 //  このソフトについてVertexLinkに問い合わせないでください。

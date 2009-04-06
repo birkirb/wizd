@@ -4,8 +4,8 @@
 // wizd:	MediaWiz Server daemon.
 //
 // 		wizd_tools.h
-//											$Revision: 1.8 $
-//											$Date: 2004/10/11 05:37:52 $
+//											$Revision: 1.24 $
+//											$Date: 2006/11/05 06:45:04 $
 //
 //	すべて自己責任でおながいしまつ。
 //  このソフトについてVertexLinkに問い合わせないでください。
@@ -50,7 +50,9 @@ extern void 	conv_num_to_unit_string(unsigned char *sentence, u_int64_t file_siz
 extern void 	cat_before_n_length(unsigned char *sentence,  unsigned int n);
 extern void 	cat_after_n_length(unsigned char *sentence,  unsigned int n);
 extern void 	cut_character_at_linetail(char *sentence, char cut_char);
+extern void 	cut_whitespace_at_linetail(char *sentence);
 extern void 	filename_to_extension(unsigned char *filename, unsigned char *extension_buf, int extension_buf_size);
+extern void	clean_buffer_text(char *buffer);
 extern void 	han2euczen(unsigned char *src, unsigned char *dist, int dist_size);
 extern void 	euc_string_cut_n_length(unsigned char *euc_sentence,  unsigned int n);
 extern void 	cut_enclose_words(unsigned char *sentence, int sentence_buf_size, unsigned char *start_key, unsigned char *end_key);
@@ -76,6 +78,8 @@ extern void debug_log_output(char *fmt, ...);
 extern void jpeg_size(unsigned char *jpeg_filename, unsigned int *x, unsigned int *y);
 extern void gif_size(unsigned char *gif_filename, 	unsigned int *x, unsigned int *y);
 extern void png_size(unsigned char *png_filename, 	unsigned int *x, unsigned int *y);
+
+extern int get_target(char *target_fname, char *retPath);
 
 
 extern void send_printf(int fd, char *fmt, ...);

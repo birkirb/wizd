@@ -306,7 +306,7 @@ int http_proxy_response(int accept_socket, HTTP_RECV_INFO *http_recv_info_p)
 					}
 				}
 
-				if (flag_pc && mlt != NULL && mlt->stream_type == TYPE_STREAM) {
+				if (flag_pc && (mlt != NULL) && ((mlt->menu_file_type & TYPE_MASK) == STREAMED_BASE)) {
 					q += sprintf(q, "/-.-playlist.pls?http://%s", http_recv_info_p->recv_host);
 				}
 				if (*p == '/') {
@@ -317,7 +317,7 @@ int http_proxy_response(int accept_socket, HTTP_RECV_INFO *http_recv_info_p)
 					q += sprintf(q, "%s%s", base_url, p);
 					//q += sprintf(q, "%s", p);
 				}
-				if (mlt != NULL && mlt->stream_type == TYPE_STREAM) {
+				if ((mlt != NULL) && ((mlt->menu_file_type & TYPE_MASK) == STREAMED_BASE)) {
 					q += sprintf(q, " vod=\"0\"");
 				}
 				*q++ = '>';

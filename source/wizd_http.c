@@ -4,8 +4,8 @@
 // wizd:	MediaWiz Server daemon.
 //
 // 		wizd_http.c
-//											$Revision: 1.26 $
-//											$Date: 2005/01/27 06:47:20 $
+//											$Revision: 1.31 $
+//											$Date: 2006/11/05 06:45:04 $
 //
 //	すべて自己責任でおながいしまつ。
 //  このソフトについてVertexLinkに問い合わせないでください。
@@ -22,8 +22,11 @@
 #include <netinet/in.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <libgen.h>
+//#include <sys/cygwin.h>
 
 #include "wizd.h"
+#include "wizd_skin.h"
 
 
 
@@ -36,6 +39,105 @@ static int http_unauthorized_response(int accept_socket, HTTP_RECV_INFO *http_re
 
 int line_receive(int accept_socket, unsigned char *line_buf_p, int line_max);
 
+extern unsigned char *skin_file_read(unsigned char *read_filename, unsigned long *malloc_size);
+extern int find_real_path(char *org_name, HTTP_RECV_INFO *recv_uri, char *work_filename);
+
+# define SKIN_KEYWORD_MENU "<wizd>menu</wizd>"
+
+int
+http_find_and_replace(int accept_socket, HTTP_RECV_INFO *http_recv_info)
+{
+	char		*index_array[] = {"wizd.htm", "wizd.html", "index.htm", "index.html"};
+	char		 wizd_buf[256];
+	int			 i;
+	SKIN_T 		*index_skin;
+	char		*p;
+	SKIN_REPLASE_GLOBAL_DATA_T	*skin_rep_data_global_p;
+	extern void send_menu(int accept_socket, SKIN_REPLASE_GLOBAL_DATA_T *skin_rep_data_global_p, HTTP_RECV_INFO *http_recv_info_p, int skip);
+
+	for (i = 0; i < 4; i++) {
+		if (find_real_path(index_array[i], http_recv_info, wizd_buf)) {
+			if (strncasecmp(index_array[i], "wizd", 4) == 0) {
+				debug_log_output("HTTP: got wizd.htm\n");
+
+				http_send_ok_header(accept_socket, 0, NULL);
+				index_skin = malloc(sizeof(SKIN_T));
+				index_skin->buffer = skin_file_read(wizd_buf, &index_skin->buffer_size);
+				skin_rep_data_global_p = skin_create_global_data(http_recv_info, 0);
+				skin_direct_replace_global(index_skin, skin_rep_data_global_p);
+				if ((p = strstr(index_skin->buffer, SKIN_KEYWORD_MENU)) != 0) {
+					// add in the menu (mid_*.html) info
+					send(accept_socket, index_skin->buffer, p - index_skin->buffer, 0);
+					send_menu(accept_socket, skin_rep_data_global_p, http_recv_info, 0);
+					p += strlen(SKIN_KEYWORD_MENU);
+					send(accept_socket, p, index_skin->buffer + strlen(index_skin->buffer) - p, 0);
+
+				} else
+					skin_direct_send(accept_socket, index_skin);
+				skin_close(index_skin);
+				free( skin_rep_data_global_p );
+			} else {
+				debug_log_output("HTTP: got index.htm\n");
+				strcpy(http_recv_info->send_filename, wizd_buf);
+				http_file_response(accept_socket, http_recv_info);
+			}
+
+			return(1);
+		}
+	}
+
+	return(0);
+}
+
+int
+http_find_and_replace_html(int accept_socket, HTTP_RECV_INFO *http_recv_info)
+{
+	char		 wizd_buf[256];
+	int			 i;
+	int			 len;
+	SKIN_T 		*index_skin;
+	char		*p;
+	SKIN_REPLASE_GLOBAL_DATA_T	*skin_rep_data_global_p;
+	struct stat		dir_stat;
+	int			found = 0;
+	extern void send_menu(int accept_socket, SKIN_REPLASE_GLOBAL_DATA_T *skin_rep_data_global_p, HTTP_RECV_INFO *http_recv_info_p, int skip);
+
+	for (i = 0; i < global_param.num_aliases; i++) {
+		len = strlen(global_param.alias_name[i]);
+		if (strncmp(&(http_recv_info->recv_uri[1]), global_param.alias_name[i], len) == 0) {
+			strcpy(wizd_buf, global_param.alias_path[i]);
+			strcat(wizd_buf, http_recv_info->recv_uri + len + 1);
+			if (stat(wizd_buf, &dir_stat) == 0) {
+				found = 1;
+				break;
+			}
+		}
+	}
+
+	if (found == 0)
+		return(0);
+
+	debug_log_output("HTTP: got wizd.htm\n");
+
+	http_send_ok_header(accept_socket, 0, NULL);
+	index_skin = malloc(sizeof(SKIN_T));
+	index_skin->buffer = skin_file_read(wizd_buf, &index_skin->buffer_size);
+	skin_rep_data_global_p = skin_create_global_data(http_recv_info, 0);
+	skin_direct_replace_global(index_skin, skin_rep_data_global_p);
+	if ((p = strstr(index_skin->buffer, SKIN_KEYWORD_MENU)) != 0) {
+		// add in the menu (mid_*.html) info
+		send(accept_socket, index_skin->buffer, p - index_skin->buffer, 0);
+		send_menu(accept_socket, skin_rep_data_global_p, http_recv_info, 0);
+		p += strlen(SKIN_KEYWORD_MENU);
+		send(accept_socket, p, index_skin->buffer + strlen(index_skin->buffer) - p, 0);
+
+	} else
+		skin_direct_send(accept_socket, index_skin);
+	skin_close(index_skin);
+	free( skin_rep_data_global_p );
+
+	return(1);
+}
 
 // **************************************************************************
 // * サーバ HTTP処理部
@@ -46,6 +148,7 @@ void 	server_http_process(int accept_socket)
 	HTTP_RECV_INFO	http_recv_info;	//HTTP受信情報保存構造体
 	int				i;
 	int				flag_allow_user_agent_check;
+	int				found;
 
 	memset(&http_recv_info, 0, sizeof(http_recv_info));
 
@@ -69,8 +172,8 @@ void 	server_http_process(int accept_socket)
 	debug_log_output("recv_uri:'%s'\n", http_recv_info.recv_uri);
 	debug_log_output("user_agent:'%s'\n", http_recv_info.user_agent);
 
-	debug_log_output("range_start_pos=%d\n", http_recv_info.range_start_pos);
-	debug_log_output("range_end_pos=%d\n", http_recv_info.range_end_pos);
+	debug_log_output("range_start_pos=%lld\n", http_recv_info.range_start_pos);
+	debug_log_output("range_end_pos=%lld\n", http_recv_info.range_end_pos);
 
 	if (http_recv_info.passwd[0]) {
 		debug_log_output("http passwd:'%s'\n", http_recv_info.passwd);
@@ -149,8 +252,16 @@ void 	server_http_process(int accept_socket)
 			, strlen(global_param.user_agent_pc))
 	) ? 1 : 0;
 
+	if(global_param.user_agent_pc[0]) {
+		debug_log_output("Checking for PC user agent '%s'", global_param.user_agent_pc);
+	}
 	debug_log_output("flag_pc: %d", http_recv_info.flag_pc);
 
+	// User-Agent
+	// HD: 'Syabas/13-14-060414-04-IOD-234-000/04-IOD (uCOS-II v2.05;NOS;KA9Q; Res1280x720-HiColor; TV Res1920x1080; Browser Res1104x656-8bits; www.syabas.com mac_addr=00.a0.b0.65.51.31)'(186 byte)
+	// SD: 'Syabas/13-14-060414-04-IOD-234-000/04-IOD (uCOS-II v2.05;NOS;KA9Q; Res624x416-HiColor; TV Res1920x1080; Browser Res624x416-8bits; www.syabas.com mac_addr=00.a0.b0.65.51.31)'
+
+	http_recv_info.flag_hd = (strstr(http_recv_info.user_agent, "Res624x416") == NULL);
 
 	if (!strncmp(http_recv_info.recv_uri, "/-.-", 4)) {
 		// proxy
@@ -182,22 +293,22 @@ void 	server_http_process(int accept_socket)
 	//  種類に応じて分岐
 	// ============================
 	result = http_file_check(&http_recv_info);
-	debug_log_output("http_file_check returns %d", result);
+	debug_log_output("http_file_check returns %d\n", result);
 
-	if (result != 6 && !strcmp(http_recv_info.request_method, "POST")) {
+	if (result != CGI_TYPE && !strcmp(http_recv_info.request_method, "POST")) {
 		debug_log_output("BAD POST REQUEST.");
 		http_not_found_response(accept_socket, &http_recv_info);
 	}
-	else if (result == -2) { // ディレクトリだが終端が '/' ではない
+	else if (result == -2) { // Directory without the trailing slash -> redirect
 		char buffer[WIZD_FILENAME_MAX];
 		sprintf(buffer, "%s/", http_recv_info.recv_uri);
 		http_redirect_response(accept_socket, &http_recv_info, buffer);
 	}
-	else if ( result < 0 ) // ファイルが見つからない
+	else if ( result < 0 ) // File not found
 	{
 		http_not_found_response(accept_socket, &http_recv_info);
 	}
-	else if ( result == 0 ) // ファイル実体ならば、実体転送。
+	else if ( result == GENERAL_FILE_TYPE ) // ファイル実体ならば、実体転送。
 	{
 		if ( global_param.flag_allow_delete && (strcasecmp(http_recv_info.action, "delete" ) == 0) )
 		{
@@ -209,6 +320,9 @@ void 	server_http_process(int accept_socket)
 			debug_log_output("Delete file start!\n");
 			debug_log_output("unlink(%s)", http_recv_info.send_filename);
 			unlink(http_recv_info.send_filename);
+			// Remove any associated bookmarks if they exist
+			snprintf(path, sizeof(path), "%s.wizd.bookmark", http_recv_info.send_filename);
+			unlink(path);
 
 			// Redirect to directory
 			strncpy(path, http_recv_info.recv_uri, sizeof(path));
@@ -245,23 +359,45 @@ void 	server_http_process(int accept_socket)
 			// JPEG Resize
 			// ----------------------------------------
 			debug_log_output("JPEG Resize start!\n");
-			http_send_resized_jpeg(accept_socket, &http_recv_info);
+			if(http_send_resized_jpeg(accept_socket, &http_recv_info) == 0) {
+				// Failed to resize - send the original file as-is
+				// (this can happen if we have the wrong file extension)
+				http_file_response(accept_socket, &http_recv_info);
+			}
 			debug_log_output("JPEG Resize end!\n");
 		}
 #endif
+		else if (strcmp(http_recv_info.option, "aviinfo") == 0)
+		{
+			debug_log_output("got aviinfo option\n");
+			http_menu(accept_socket, &http_recv_info);
+		}
+		else if (strcmp(http_recv_info.option, "mp3info") == 0)
+		{
+			http_menu(accept_socket, &http_recv_info);
+		}
 		else // アクションに指定無し。
 		{
 			// ----------------------------------------
 			// ファイルの実体
 			// HTTPリクエストヘッダに従ってデータを返信。
 			// ----------------------------------------
-			debug_log_output("HTTP response start!\n");
-			http_file_response(accept_socket, &http_recv_info);
-			debug_log_output("HTTP response end!\n");
+			found = 0;
+			if (global_param.flag_use_index && strstr(http_recv_info.recv_uri, "wizd") != 0 && strstr(http_recv_info.recv_uri, ".htm") != 0) {
+				if (http_find_and_replace_html(accept_socket, &http_recv_info)) {
+					found = 1;
+				}
+			}
+
+			if (!found) {
+				debug_log_output("HTTP response start!\n");
+				http_file_response(accept_socket, &http_recv_info);
+				debug_log_output("HTTP response end!\n");
+			}
 		}
 
 	}
-	else if ( result == 2 )
+	else if ( result == SVI_TYPE )
 	{
 		// ----------------------------------------
 		// SVIファイル（；´Д｀）
@@ -285,7 +421,7 @@ void 	server_http_process(int accept_socket)
 			debug_log_output("HTTP joint file response end!\n");
 		}
 	}
-	else if ( result == 3 )
+	else if ( result == PLW_UPL_TYPE )
 	{
 		// ---------------------------------------------
 		// plw/uplファイル(`･ω･´)
@@ -295,7 +431,7 @@ void 	server_http_process(int accept_socket)
 		http_listfile_to_playlist_create(accept_socket, &http_recv_info);
 		debug_log_output("HTTP wizd play list create and response end!\n");
 	}
-	else if ( result == 5 )
+	else if ( result == VOB_TYPE )
 	{
 		// ---------------------------------------------
 		// vobファイル 連結
@@ -319,7 +455,7 @@ void 	server_http_process(int accept_socket)
 			debug_log_output("HTTP vob file response end!\n");
 		}
 	}
-	else if ( result == 6 )
+	else if ( result == CGI_TYPE )
 	{
 		// ---------------------------------------------
 		// cgiファイル
@@ -328,6 +464,24 @@ void 	server_http_process(int accept_socket)
 		debug_log_output("HTTP CGI response start!\n");
 		http_cgi_response(accept_socket, &http_recv_info);
 		debug_log_output("HTTP CGI response end!\n");
+	}
+	else if ( result == ISO_TYPE )
+	{ // ISO file handling
+		if ( (strcasecmp(http_recv_info.action, "IsoPlay" ) == 0) ||
+			(strcasecmp(http_recv_info.action, "dvdplay" ) == 0) ||
+			(strncmp(http_recv_info.action, "showchapters", 12 ) == 0))
+		{
+			debug_log_output("ISO playlist create start!\n");
+			http_menu(accept_socket, &http_recv_info);
+			debug_log_output("ISO playlist create end!\n");
+		}
+		else
+		{
+			// Start to stream the VOB
+			debug_log_output("HTTP ISO file response start!\n");
+			http_vob_file_response(accept_socket, &http_recv_info);
+			debug_log_output("HTTP ISO file response end!\n");
+		}
 	}
 	else
 	{
@@ -387,15 +541,20 @@ void 	server_http_process(int accept_socket)
 			http_redirect_response(accept_socket, &http_recv_info, dest);
 			debug_log_output("Copy playlist end!\n");
 		}
-		else	// アクションに指定無し。
+		else	// DIRECTORY_TYPE or {wizd,index}.htm{l}
 		{
-			// -------------------------------------
-			// ディレクトリ検出
-			// ファイルリストを生成して返信。
-			// -------------------------------------
-			debug_log_output("HTTP file menu create.\n");
-			http_menu(accept_socket, &http_recv_info, result == 1 ? 0 : 1);
-			debug_log_output("HTTP file menu end.\n");
+			int	found = 0;
+
+			if (global_param.flag_use_index) {
+				if (http_find_and_replace(accept_socket, &http_recv_info))
+					found = 1;
+			}
+
+			if (!found) {
+				debug_log_output("HTTP file menu create.\n");
+				http_menu(accept_socket, &http_recv_info);
+				debug_log_output("HTTP file menu end.\n");
+			}
 		}
 	}
 
@@ -439,6 +598,7 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 
 	int		ret;
 	int		i;
+	int		j;
 
 	// ================================
 	// １行づつ HTTPヘッダを受信
@@ -506,6 +666,9 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 					memset(split1, '\0', sizeof(split1));
 					memset(split2, '\0', sizeof(split2));
 
+					uri_decode(split1, sizeof(split1), work_buf, sizeof(work_buf) );
+					strcpy(work_buf, split1);
+
 					// 最初に登場する'&'で分割
 					ret = sentence_split(work_buf, '&', split1, split2 );
 					if ( ret == 0 ) // 分割成功
@@ -528,7 +691,8 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 					// -------------------------------------
 
 					// URIデコード
-					uri_decode(work_buf2, sizeof(work_buf2), split1, sizeof(split1) );
+					// uri_decode(work_buf2, sizeof(work_buf2), split1, sizeof(split1) );
+					strcpy(work_buf2, split1);
 
 					// "page="あるか調査。
 					if (strncasecmp( work_buf2, "page=", strlen("page=") ) == 0 )
@@ -539,6 +703,60 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 						{
 							// 構造体に値を保存。
 							http_recv_info_p->page = atoi(work_buf2);
+						}
+
+						continue;
+					}
+
+					// "menupage="あるか調査。
+					if (strncasecmp( work_buf2, "menupage=", strlen("menupage=") ) == 0 )
+					{
+						// = より前を削除
+						cut_before_character(work_buf2, '=');
+						if ( strlen(work_buf2) > 0 )
+						{
+							// 構造体に値を保存。
+							http_recv_info_p->menupage = atoi(work_buf2);
+						}
+
+						continue;
+					}
+
+					// "title=" DVD title selection
+					if (strncasecmp( work_buf2, "title=", strlen("title=") ) == 0 )
+					{
+						// = より前を削除
+						cut_before_character(work_buf2, '=');
+						if ( strlen(work_buf2) > 0 )
+						{
+							// 構造体に値を保存。
+							http_recv_info_p->title = atoi(work_buf2);
+						}
+
+						continue;
+					}
+
+					if (strncasecmp( work_buf2, "width=", strlen("width=") ) == 0 )
+					{
+						// = より前を削除
+						cut_before_character(work_buf2, '=');
+						if ( strlen(work_buf2) > 0 )
+						{
+							// 構造体に値を保存。
+							global_param.target_jpeg_width = atoi(work_buf2);
+						}
+
+						continue;
+					}
+
+					if (strncasecmp( work_buf2, "height=", strlen("height=") ) == 0 )
+					{
+						// = より前を削除
+						cut_before_character(work_buf2, '=');
+						if ( strlen(work_buf2) > 0 )
+						{
+							// 構造体に値を保存。
+							global_param.target_jpeg_height = atoi(work_buf2);
 						}
 
 						continue;
@@ -593,6 +811,72 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 						continue;
 					}
 
+					// "alias="あるか調査
+					if (strncasecmp( work_buf2, "alias=", strlen("alias=") ) == 0 )
+					{
+						// = より前を削除
+						cut_before_character(work_buf2, '=');
+
+						// 構造体に値を保存。
+						strncpy(http_recv_info_p->alias, work_buf2, sizeof(http_recv_info_p->alias));
+
+						if (strncasecmp(http_recv_info_p->alias, "movie", strlen("movie")) == 0)
+							http_recv_info_p->default_file_type = TYPE_MOVIE;
+						else if (strncasecmp(http_recv_info_p->alias, "music", strlen("music")) == 0)
+							http_recv_info_p->default_file_type = TYPE_MUSIC;
+						else if (strncasecmp(http_recv_info_p->alias, "photo", strlen("photo")) == 0)
+							http_recv_info_p->default_file_type = TYPE_JPEG;
+						else
+							http_recv_info_p->default_file_type = TYPE_UNKNOWN;
+
+						continue;
+					}
+
+					if (strncasecmp( work_buf2, "lsearch=", strlen("lsearch=") ) == 0 )
+					{
+						cut_before_character(work_buf2, '=');
+
+						strcpy(http_recv_info_p->lsearch, work_buf2);
+						strcpy(http_recv_info_p->recv_uri, work_buf2);
+						continue;
+					}
+
+					// "search=
+					if (strncasecmp( work_buf2, "search", strlen("search") ) == 0 )
+					{
+						if (strncasecmp(work_buf2, "search_movie", strlen("search_movie")) == 0) {
+							http_recv_info_p->search_type = TYPE_MOVIE;
+							strcpy(http_recv_info_p->search_str, "_movie");
+							http_recv_info_p->default_file_type = TYPE_MOVIE;
+							// printf("search movie for ");
+						} else if (strncasecmp(work_buf2, "search_music", strlen("search_music")) == 0) {
+							http_recv_info_p->search_type = TYPE_MUSIC;
+							strcpy(http_recv_info_p->search_str, "_music");
+							http_recv_info_p->default_file_type = TYPE_MUSIC;
+							// printf("search music for ");
+						} else if (strncasecmp(work_buf2, "search_photo", strlen("search_photo")) == 0) {
+							http_recv_info_p->search_type = TYPE_JPEG;
+							strcpy(http_recv_info_p->search_str, "_photo");
+							http_recv_info_p->default_file_type = TYPE_JPEG;
+							// printf("search photo for ");
+						} else if (strncasecmp(work_buf2, "search_all", strlen("search_all")) == 0) {
+							http_recv_info_p->search_type = TYPE_UNKNOWN;
+							strcpy(http_recv_info_p->search_str, "_all");
+							http_recv_info_p->default_file_type = TYPE_UNKNOWN;
+							// printf("search all for ");
+						} else
+							continue;
+
+						cut_before_character(work_buf2, '=');
+
+						strncpy(http_recv_info_p->search, work_buf2, sizeof(http_recv_info_p->search));
+						if (http_recv_info_p->search[0] == '\0')
+							// everything qualifies
+							strcpy(http_recv_info_p->search, ".*");
+
+						// printf("%s\n", http_recv_info_p->search);
+						continue;
+					}
 
 					// "sort="あるか調査
 					if (strncasecmp( work_buf2, "sort=", strlen("sort=") ) == 0 )
@@ -617,7 +901,6 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 						continue;
 					}
 
-
 					// "focus="あるか調査
 					if (strncasecmp( work_buf2, "focus=", strlen("focus=") ) == 0 )
 					{
@@ -636,7 +919,10 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 			}
 
 			debug_log_output("http_recv_info_p->page = '%d'", http_recv_info_p->page);
+			debug_log_output("http_recv_info_p->title = '%d'", http_recv_info_p->title);
 			debug_log_output("http_recv_info_p->action = '%s'", http_recv_info_p->action);
+			debug_log_output("http_recv_info_p->option = '%s'", http_recv_info_p->option);
+			debug_log_output("http_recv_info_p->dvdopt = '%s'", http_recv_info_p->dvdopt);
 
 			// URIデコード
 			cut_after_character(line_buf, '?');
@@ -649,7 +935,8 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 
 
 			// 構造体に保存
-			strncpy(http_recv_info_p->recv_uri, line_buf, sizeof(http_recv_info_p->recv_uri));
+			if (http_recv_info_p->lsearch[0] == '\0')
+				strncpy(http_recv_info_p->recv_uri, line_buf, sizeof(http_recv_info_p->recv_uri));
 
 			continue;
 
@@ -658,14 +945,22 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 		// User-agent切り出し
 		if ( strncasecmp(line_buf, HTTP_USER_AGENT, strlen(HTTP_USER_AGENT) ) == 0 )
 		{
-			debug_log_output("User-agent: Detect.\n");
 			// ':'より前を切る
 			cut_before_character(line_buf, ':');
 			cut_first_character(line_buf, ' ');
 
 			// 構造体に保存
 			strncpy( http_recv_info_p->user_agent, line_buf, sizeof(http_recv_info_p->user_agent));
-			http_recv_info_p->hi_res = strstr(line_buf, "Res1280") != NULL;
+
+			// Set the skin name based on user agent, if desired
+			for(j=0; j<global_param.alternate_skin_count; j++) {
+				debug_log_output("Checking for '%s'", global_param.alternate_skin_match[j]);
+				if(strstr(line_buf, global_param.alternate_skin_match[j]) != NULL) {
+					strcpy(global_param.skin_name, global_param.alternate_skin_name[j]);
+					debug_log_output("User agent matches alternate skin '%s'", global_param.skin_name); 
+					break;
+				}
+			}
 			continue;
 		}
 
@@ -687,8 +982,8 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 			// '-'で前後に分割。
 			sentence_split(line_buf, '-', work_buf, work_buf2);
 
-			debug_log_output("wrok_buf='%s'\n", work_buf);
-			debug_log_output("wrok_buf2='%s'\n", work_buf2);
+			debug_log_output("work_buf='%s'\n", work_buf);
+			debug_log_output("work_buf2='%s'\n", work_buf2);
 
 			// 値を文字列→数値変換
 			http_recv_info_p->range_start_pos  = strtoull(work_buf, NULL, 10);
@@ -717,8 +1012,8 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 			if(NULL == strchr(http_recv_info_p->recv_host, ':')) {
 				debug_log_output("CLIENT BUG: Host header field was missing port number - fixing");
 				snprintf(http_recv_info_p->recv_host + strlen(http_recv_info_p->recv_host), sizeof(http_recv_info_p->recv_host)-1, ":%d", global_param.server_port);
+				debug_log_output("%s '%s'", HTTP_HOST, http_recv_info_p->recv_host);
 			}
-			debug_log_output("%s '%s'", HTTP_HOST, http_recv_info_p->recv_host);
 
 			continue;
 		}
@@ -757,28 +1052,29 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 }
 
 
-
-
-
 // **************************************************************************
 // リクエストされたURIのファイルをチェック
 // documet_rootと、skin置き場をセットで探す。
 //
-// ret		 0:実体
-//			 1:ディレクトリ
-//			 2:SVIファイル（；´Д｀）
-//			 3:plw/uplファイル(`･ω･´)
-//			 4:tsvファイル(´・ω・`)
-//			 5:VOBファイル
-//			 6:CGIファイル
+// Sets http_recv_info_p->file_type to one of the following:
+//			-2: Directory without the slash
+//			-1: File not found
+//			 0: Normal file
+//			 1: Directory
+//			 2: SVI
+//			 3: plw/upl
+//			 4: tsv
+//			 5: VOB video file
+//			 6: CGI script
+//			 7: ISO DVD image
 // **************************************************************************
 static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 {
 	struct stat send_filestat;
 	int result;
+	int len;
 
 	unsigned char	file_extension[16];
-
 
 	debug_log_output("http_file_check() start.");
 
@@ -797,34 +1093,90 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 	strncat(http_recv_info_p->send_filename, http_recv_info_p->recv_uri, sizeof(http_recv_info_p->send_filename));
 
 	// Check if the URI is an alias
+	// printf("uri1 is %s\n", http_recv_info_p->recv_uri);
+	// printf("send_filename1 %s\n", http_recv_info_p->send_filename);
 	if(global_param.num_aliases && (http_recv_info_p->recv_uri[0] == '/')) {
-		int i,len;
+		int i,j,len, skip_stat;
+		char *p;
+		
 		for(i=0; i<global_param.num_aliases; i++) {
 			len = strlen(global_param.alias_name[i]);
-			if(   (strncmp(http_recv_info_p->recv_uri+1, global_param.alias_name[i], len)==0)
-			   && (http_recv_info_p->recv_uri[len+1] == '/')) {
-				debug_log_output("substituting alias path '%s' for alias '%s'\n",
-					global_param.alias_path[i], global_param.alias_name[i]);
+			if ((strncmp(http_recv_info_p->recv_uri + 1, global_param.alias_name[i], len) == 0)
+			   && (http_recv_info_p->recv_uri[len+1] == '/') ) {
+			   // see code in set_thumb_file in wizd_menu.c
+				p = strrchr(http_recv_info_p->recv_uri, '.');
+				if (p && isdigit(p[1]) && isdigit(p[2]) && !p[3]) {
+					p[0] = 0;
+					p++;
+					j = atoi(p);
+					skip_stat = 1;
+				} else {
+					j = i;
+					skip_stat = 0;
+				}
+
+				debug_log_output("substituting alias path '%s' for '%s'\n",
+								  global_param.alias_path[j],
+								  global_param.alias_name[j]);
+
 				// The name matches an alias - substitute the alias path
-				strncpy(http_recv_info_p->send_filename, global_param.alias_path[i], sizeof(http_recv_info_p->send_filename));
+				strncpy(http_recv_info_p->send_filename, global_param.alias_path[j], sizeof(http_recv_info_p->send_filename));
 				strncat(http_recv_info_p->send_filename, http_recv_info_p->recv_uri+len+1, sizeof(http_recv_info_p->send_filename)-strlen(http_recv_info_p->send_filename));
+
+				if (!skip_stat && stat(http_recv_info_p->send_filename, &send_filestat) != 0)
+					continue;
+
 				// Set the default allplay type, if it was not specified in the http request
-				if(http_recv_info_p->default_file_type == TYPE_UNKNOWN)
-					http_recv_info_p->default_file_type = global_param.alias_default_file_type[i];
+				if(http_recv_info_p->default_file_type == TYPE_UNKNOWN) {
+					http_recv_info_p->default_file_type = global_param.alias_default_file_type[j];
+					debug_log_output("Setting default file type to %d\n",http_recv_info_p->default_file_type);
+				} else {
+					debug_log_output("Leaving default file type set at %d\n",http_recv_info_p->default_file_type);
+				}
 				break;
 			}
 		}
 	}
 
+	// fix up shortcuts
+# ifdef HAVE_W32API
+	len = strlen(http_recv_info_p->recv_uri);
+	if (len > 4 && strcmp(&http_recv_info_p->recv_uri[len - 4], ".lnk") == 0) {
+		char retPath1[256];
+		char retPath2[256];
+		char *p1, *p2;
+
+		cygwin_conv_to_full_win32_path(http_recv_info_p->send_filename, retPath1);
+		if (get_target(retPath1, retPath2) == 0) {
+			cygwin_conv_to_full_posix_path(retPath2, http_recv_info_p->send_filename);
+
+			p1 = strrchr(http_recv_info_p->recv_uri, '/');
+			p1++;
+			p2 = strrchr(http_recv_info_p->send_filename, '/');
+			p2++;
+			strcpy(p1, p2);
+		}
+	}
+# endif
+
+	// printf("send_filename2 %s\n", http_recv_info_p->send_filename);
+	// printf("uri2 is %s\n\n", http_recv_info_p->recv_uri);
+
 	// '/' が重なってるところの重複を排除。
 	duplex_character_to_unique(http_recv_info_p->send_filename, '/');
 	debug_log_output("http_recv_info_p->send_filename='%s'\n", http_recv_info_p->send_filename);
+
+
+	// Return "File not found" unless we get a match
+	http_recv_info_p->file_type = -1;
 
 	// ------------------------------------------------------------
 	// ファイルあるかチェック。
 	// ------------------------------------------------------------
 	result = stat(http_recv_info_p->send_filename, &send_filestat);
-	debug_log_output("stat: result=%d, st_mode=0x%04X, S_ISREG=%d, S_ISDIR=%d\n", result, send_filestat.st_mode, S_ISREG(send_filestat.st_mode), S_ISDIR(send_filestat.st_mode) );
+	debug_log_output("stat: result=%d, st_mode=0x%04X, S_ISREG=%d, S_ISDIR=%d size=%lld\n", 
+		result, send_filestat.st_mode, S_ISREG(send_filestat.st_mode), S_ISDIR(send_filestat.st_mode), send_filestat.st_size );
+	http_recv_info_p->file_size = send_filestat.st_size;
 
 	if(result < 0)
 	{
@@ -877,8 +1229,8 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 			// File Not Found.
 			// やっぱり、404にしよう。
 			// -------------------------------------
-
-			return ( -1 ) ;
+			http_recv_info_p->file_type = -1; // Not found
+			return(http_recv_info_p->file_type);
 		}
 	}
 
@@ -921,37 +1273,46 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 		debug_log_output("http_recv_info_p->send_filename='%s', file_extension='%s'\n", http_recv_info_p->send_filename, file_extension);
 
 		// 拡張子から、mime_typeを導く。
-		check_file_extension_to_mime_type(file_extension, http_recv_info_p->mime_type,  sizeof(http_recv_info_p->mime_type));
-
+		http_recv_info_p->menu_file_type = check_file_extension_to_mime_type(file_extension, http_recv_info_p->mime_type,  sizeof(http_recv_info_p->mime_type));
 
 		// SVIファイルと実体ファイルで分岐
 		if (( strcasecmp(file_extension, "svi") == 0 ) || ( strcasecmp(file_extension, "sv3") == 0 ))
 		{
-			return ( 2 );	// sviファイル
+			http_recv_info_p->file_type = SVI_TYPE;	// sviファイル
 		}
-		else if (( strcasecmp(file_extension, "plw") == 0  ) ||
+		else if (  ( http_recv_info_p->menu_file_type == TYPE_PLAYLIST )
+				|| ( http_recv_info_p->menu_file_type == TYPE_MUSICLIST ))
+			/*( strcasecmp(file_extension, "plw") == 0  ) ||
 				 ( strcasecmp(file_extension, "pls") == 0  ) ||
 				 ( strcasecmp(file_extension, "m3u") == 0  ) ||
-				 ( strcasecmp(file_extension, "upl") == 0  ) )
+				 ( strcasecmp(file_extension, "upl") == 0  ) )*/
 		{
-			return ( 3 );	// plw/upl ファイル
+			http_recv_info_p->file_type = PLW_UPL_TYPE;	// plw/upl ファイル
 		}
-		else if ( strcasecmp(file_extension, "vob") == 0  )
+		else if (( strcasecmp(file_extension, "vob") == 0  )
+			|| ( strcasecmp(file_extension, "ts") == 0  )
+			|| ( strcasecmp(file_extension, "tp") == 0  ) )
 		{
-			return ( 5 );	// vobファイル
+			// VOB_TYPE files combine files with increasing digits at the end of the filename
+			// into one large virtual file
+			http_recv_info_p->file_type = VOB_TYPE;	// vobファイル
 		}
 		else if ( strcasecmp(file_extension, "tsv") == 0  )
 		{
-			return ( 4 );	// tsvファイル
+			http_recv_info_p->file_type = TSV_TYPE;	// tsvファイル
 		}
 		else if ( strcasecmp(file_extension, "cgi") == 0  )
 		{
 			// CGIの実行が不許可なら、Not Found.
-			return ( global_param.flag_execute_cgi ? 6 : -1 );	// cgiファイル
+			http_recv_info_p->file_type = (global_param.flag_execute_cgi ? CGI_TYPE : -1 );	// cgiファイル
+		}
+		else if ( http_recv_info_p->menu_file_type == TYPE_ISO )
+		{
+			http_recv_info_p->file_type = ISO_TYPE;
 		}
 		else
 		{
-			return ( 0 );	// File実体
+			http_recv_info_p->file_type = GENERAL_FILE_TYPE;	// File実体
 		}
 	}
 	else if ( ( result == 0 ) && ( S_ISDIR(send_filestat.st_mode) == 1 ) ) // ディレクトリ
@@ -960,16 +1321,14 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 		len = strlen(http_recv_info_p->recv_uri);
 		if (len > 0 && http_recv_info_p->recv_uri[len - 1] != '/') {
 			// '/' で終端していないディレクトリ要求の場合...
-			return ( -2 );
+			http_recv_info_p->file_type = -2;
 		}
 		// ディレクトリと検知
 		debug_log_output("'%s' is Dir!!", http_recv_info_p->send_filename);
 
-		return ( 1 ) ;	// ディレクトリ
+		http_recv_info_p->file_type = DIRECTORY_TYPE ;	// ディレクトリ
 	}
-
-	// File not found
-	return ( -1 );
+	return( http_recv_info_p->file_type );
 }
 
 

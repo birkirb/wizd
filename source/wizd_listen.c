@@ -4,8 +4,8 @@
 // wizd:	MediaWiz Server daemon.
 //
 // 		wizd_listen.c
-//											$Revision: 1.6 $
-//											$Date: 2004/03/06 13:52:56 $
+//											$Revision: 1.23 $
+//											$Date: 2006/06/19 20:21:59 $
 //
 //	すべて自己責任でおながいしまつ。
 //  このソフトについてVertexLinkに問い合わせないでください。
@@ -54,6 +54,8 @@ void	server_listen()
 	unsigned char	masked_client_address[4];
 	unsigned char	work1[32];
 	unsigned char	work2[32];
+
+	int		fork_fail;
 
 	// =============================
 	// listenソケット生成
@@ -165,13 +167,27 @@ void	server_listen()
 		// ========================
 		// fork実行
 		// ========================
-		pid = fork();
-		if ( pid < 0 ) // fork失敗チェック
-		{
-			printf("fork() error. ret=%d\n", pid);
-			close(accept_socket);	// 残念だが、ソケットは閉じる。
-			continue;				// 最初に戻る。
+		fork_fail = 0;
+		for (;;) {
+			pid = fork();
+			if ( pid < 0 ) // fork失敗チェック
+			{
+				printf("fork() error. ret=%d, retries %d\n", pid, fork_fail);
+				if (fork_fail < 5) {
+					fork_fail++;
+					continue;
+				}
+				close(accept_socket);	// 残念だが、ソケットは閉じる。
+			} else {
+				if (fork_fail)
+					printf("fork recovered after %d tries\n", fork_fail);
+				fork_fail = 0;
+			}
+			break;
 		}
+
+		if (fork_fail)
+			continue;
 
 		if (pid == 0)
 		{

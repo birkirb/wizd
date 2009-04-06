@@ -2,7 +2,7 @@
 #
 # nkf test program for nkf-2
 #
-# $Id: nkf_test.pl,v 1.10 2005/01/02 05:46:25 naruse Exp $
+# $Id: nkf_test.pl,v 1.1 2006/05/20 04:12:20 pvanbaren Exp $
 #
 #    Shinji KONO <kono@ie.u-ryukyu.ac.jp>
 # Sun Aug 18 12:25:40 JST 1996

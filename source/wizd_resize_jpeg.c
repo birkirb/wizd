@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <math.h>
 #include <jpeglib.h>
 #include <jerror.h>
 
@@ -83,21 +84,62 @@ setupDestManager(j_compress_ptr cinfo, UCHAR *pBuf, int nBufMax) {
 
 // どのサイズへリサイズするかを計算する
 static void
-calcSize(int nOrgW, int nOrgH, int nFitW, int nFitH, double dWRatio, int *pnNewW, int *pnNewH) {
+calcSize(int nOrgW, int nOrgH, int nFitW, int nFitH, double dWRatio, int nCrop, int *pnNewW, int *pnNewH, int *pnCropW, int *pnCropH) {
     double dResizeW, dResizeH, dResize;
 
     dResizeW = (double)nOrgW * dWRatio;
     dResizeH = (double)nOrgH;
-    if (dResizeW < nFitW && dResizeH < nFitH) {
+
+    // Get the aspect ratio difference from source to destination
+    // Example: nFitW=1600, nFitH=900   (16:9 aspect ratio destination)
+    //          dResizeW=400, dResizeH=300  (4:3 aspect ratio source)
+    //          nCrop = 10
+    //    then  dAspect = (300*1600)/(900*400) = 4/3
+    //      so  we can expand nFitH by the full 10% to allow vertical cropping
+    dResize = (dResizeH*nFitW)/(nFitH*dResizeW);
+    // Allow up to N% cropping to reduce side bars and/or letterboxing
+    if(dResize > (1.0+0.01*nCrop)) {
+	// Use the crop limit, but will retain some side bars
+	*pnCropH = (int)floor(nFitH*(0.01*nCrop)+0.5);
+	*pnCropW = 0;
+    } else if(dResize > 1.0) {
+	// Can eliminate side bars by cropping top/bottom appropriately
+	*pnCropH = (int)floor(nFitH*(dResize-1.0)+0.5);
+	*pnCropW = 0;
+    } else if(dResize < (1.0-0.01*nCrop)) {
+	// Use the crop limit, but will retain some letterboxing
+	*pnCropW = (int)floor(nFitW*(0.01*nCrop)+0.5);
+	*pnCropH = 0;
+    } else {
+	// Can eliminate letterbox by cropping left/right appropriately
+	*pnCropW = (int)floor(nFitW*(1.0-dResize)+0.5);
+	*pnCropH = 0;
+    }
+
+    if ((dResizeW < nFitW) && (dResizeH < nFitH)) {
 	*pnNewW = dResizeW;
 	*pnNewH = dResizeH;
-	return ;
+	*pnCropW = 0;
+	*pnCropH = 0;
+    } else {
+    	dResizeW /= (nFitW + *pnCropW);
+    	dResizeH /= (nFitH + *pnCropH);
+
+    	dResize = MAX(dResizeW, dResizeH);
+
+    	*pnNewW = MIN(nFitW, (int)((double)nOrgW * dWRatio / dResize));
+    	*pnNewH = MIN(nFitH, (int)((double)nOrgH / dResize));
     }
-    dResizeW /= nFitW;
-    dResizeH /= nFitH;
-    dResize = MAX(dResizeW, dResizeH);
-    *pnNewW = MIN(nFitW, (int)((double)nOrgW * dWRatio / dResize));
-    *pnNewH = MIN(nFitH, (int)((double)nOrgH / dResize));
+
+    // Make sure the values are multiples of 16 for proper JPEG compression
+    if(*pnNewW & 0xf) {
+	//fprintf(stderr, "Rounding W from %d to %d\n", *pnNewW, (*pnNewW & 0xFFFFFFF0)+0x10);
+	*pnNewW = (*pnNewW & 0xFFFFFFF0)+0x10;
+    }
+    if(*pnNewH & 0xf) {
+	//fprintf(stderr, "Rounding H from %d to %d\n", *pnNewH, (*pnNewH & 0xFFFFFFF0)+0x10);
+	*pnNewH = (*pnNewH & 0xFFFFFFF0)+0x10;
+    }
 }
 
 #ifdef NEW_METHOD
@@ -256,7 +298,7 @@ resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeigh
 // リサイズ処理実行
 // 1024倍して固定小数点演算のつもり
 static int
-resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeight) {
+resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeight, int nCropW, int nCropH) {
     int		x, y, orgX, orgY, srcY, srcX, srcXK;
     JSAMPROW	in_row_ptr[1], out_row_ptr[1];
     UCHAR	*pin1, *pin2, *pout, *p;
@@ -264,6 +306,7 @@ resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeigh
     int		nScaleX, nScaleY;
     int		dx, dy, idx0, idx1, i;
     int		weight00, weight01, weight10, weight11, weight;
+    int		nStartX,nEndX,nStartY,nEndY;
 
     if (cinfoIN->num_components != 3 ||
 	cinfoIN->image_width > MAX_JPEG_WIDTH ||
@@ -289,10 +332,15 @@ resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeigh
     }
     in_row_ptr[0] = pin1;
     out_row_ptr[0] = pout;
-    nScaleX = cinfoIN->image_width * 1024 / nWidth;
-    nScaleY = cinfoIN->image_height * 1024 / nHeight;
+    // Set up the cropping
+    nStartX = nCropW/2;
+    nEndX = nStartX+nWidth;
+    nStartY = nCropH/2;
+    nEndY = nStartY+nHeight;
+    nScaleX = cinfoIN->image_width * 1024 / (nWidth+nCropW);
+    nScaleY = cinfoIN->image_height * 1024 / (nHeight+nCropH);
     jpeg_read_scanlines(cinfoIN, in_row_ptr, 1);
-    for (x = y = orgX = orgY = 0; y < nHeight; y++) {
+    for (x = y = orgX = orgY = 0; y < nEndY; y++) {
 	srcY = (y * nScaleY) >> 10;
 	dy = y * nScaleY - (srcY << 10); // 次へ はみ出してるサイズ(1024倍済)
 	// ターゲット行と、その次の行を読むまでスキップ
@@ -314,7 +362,8 @@ resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeigh
 	    pline[1] = pin2;
 	}
 	// 1ライン分のリサイズ処理(最右ピクセルはループ後設定)
-	for (x = srcXK = 0, p = pout; x < nWidth - 1; x++, srcXK += nScaleX) {
+	// Only output the columns which aren't cropped
+	for (x = nStartX, srcXK = 0, p = pout; x < (nEndX-1); x++, srcXK += nScaleX) {
 	    srcX = srcXK >> 10;
 	    // dx = 右隣のピクセルにはみ出してるサイズ(1024倍済)
 	    dx = srcXK - (srcX << 10); // 右隣へ はみ出してるサイズ(1024倍済)
@@ -333,14 +382,15 @@ resize(j_decompress_ptr cinfoIN, j_compress_ptr cinfoOUT, int nWidth, int nHeigh
 		     pline[1][idx0] * weight10 +
 		     pline[1][idx1] * weight11) / weight;
 	    }
-
 	}
 	// 最右ピクセル（はみ出すとイヤだし面倒なので補完なし）
 	srcX = srcXK >> 10;
 	*p++ = pline[0][srcX * 3];
 	*p++ = pline[0][srcX * 3 + 1];
 	*p++ = pline[0][srcX * 3 + 2];
-	jpeg_write_scanlines(cinfoOUT, out_row_ptr, 1);
+	// Only output the lines which aren't cropped
+	if((y>=nStartY) && (y<nEndY))
+		jpeg_write_scanlines(cinfoOUT, out_row_ptr, 1);
     }
     // 読み残しを全部読んでしまう -> 無駄なのでやめときます(finishしちゃだめ!)
 //    while (cinfoIN->output_scanline < cinfoIN->image_height) {
@@ -363,6 +413,7 @@ resizeJpeg(			// RET:JPEGデータサイズ(0=error)
     int		nFitH,		// IN: ターゲットJPEG高さ
     UCHAR	*pBuf,		// OUT:変換後JPEGデータ格納場所
     int		nBufMax,	// IN: pBufのサイズ
+    int		nCrop,		// IN: Allowable amount of cropping, in percent
     double	dWidenRatio)	// IN: 横方向拡大率(1.0=等倍)
 {
     // libjpeg関連変数
@@ -372,6 +423,9 @@ resizeJpeg(			// RET:JPEGデータサイズ(0=error)
     // その他
     FILE	*fpIN;
     int		nResizedW, nResizedH;
+    int		nCropW, nCropH;
+    unsigned char tag[2];
+    int		ret;
 
     cinfoIN.err = jpeg_std_error(&jerrIN);
     cinfoOUT.err = jpeg_std_error(&jerrOUT);
@@ -381,15 +435,32 @@ resizeJpeg(			// RET:JPEGデータサイズ(0=error)
 	debug_log_output("cannot open src jpeg (%s)\n", pszOrgJpeg);
 	return 0;
     }
+    // Double-check to make sure this is a JPEG image
+    // because libjpeg crashes if it isn't
+    fread(tag, 1, 2, fpIN);
+    fseek(fpIN, 0, SEEK_SET);
+    debug_log_output("src jpeg (%s) tag is %02x, %02x\n", pszOrgJpeg, tag[0], tag[1]);
+	
+    if((tag[0] != 0xFF) || (tag[1] != 0xd8)) {
+ 	debug_log_output("src jpeg (%s) is not valid, tag is %02x, %02x\n", pszOrgJpeg, tag[0], tag[1]);
+	return 0;
+    }
+   
     jpeg_stdio_src(&cinfoIN, fpIN);
-    jpeg_read_header(&cinfoIN, TRUE);
+    ret = jpeg_read_header(&cinfoIN, TRUE);
+    if(ret < 0) {
+ 	debug_log_output("jpeg_read_header(%s) returned %d\n", pszOrgJpeg, ret);
+	return 0;
+    }
+    debug_log_output("Original size (%dx%d)\n", cinfoIN.image_width, cinfoIN.image_height);
+
     setupDestManager(&cinfoOUT, pBuf, nBufMax);
     calcSize(cinfoIN.image_width, cinfoIN.image_height,
-	     nFitW, nFitH, dWidenRatio, &nResizedW, &nResizedH);
+	     nFitW, nFitH, dWidenRatio, nCrop, &nResizedW, &nResizedH, &nCropW, &nCropH);
     debug_log_output("(%d,%d)->(%d,%d)\n",
 	    cinfoIN.image_width, cinfoIN.image_height, nResizedW, nResizedH);
 
-    if (0 != resize(&cinfoIN, &cinfoOUT, nResizedW, nResizedH)) {
+    if (0 != resize(&cinfoIN, &cinfoOUT, nResizedW, nResizedH, nCropW, nCropH)) {
 	debug_log_output("resize error\n");
 	return 0;
     }
@@ -409,11 +480,12 @@ resizeJpeg(			// RET:JPEGデータサイズ(0=error)
 
 
 static void
-setupTargetSize(int *pnTargetW, int *pnTargetH, double *pdWidenRatio) {
+setupTargetSize(int *pnTargetW, int *pnTargetH, int *pnCrop, double *pdWidenRatio) {
     *pnTargetW = (global_param.target_jpeg_width != 0 ) ?
 	global_param.target_jpeg_width : TARGET_JPEG_WIDTH;
     *pnTargetH = (global_param.target_jpeg_height != 0 ) ?
 	global_param.target_jpeg_height : TARGET_JPEG_HEIGHT;
+    *pnCrop = global_param.allow_crop;
     *pdWidenRatio = (global_param.widen_ratio != 0.0 ) ?
 	global_param.widen_ratio : WIDEN_RATIO;
 	
@@ -428,11 +500,12 @@ http_send_resized_jpeg(int fd, HTTP_RECV_INFO *http_recv_info_p) {
     UCHAR	*pNewJpeg;
     int		nTargetWidth, nTargetHeight;
     double	dWidenRatio;
+    int		nCrop;
     int		nMaxBuf, nJpegSize;
 
     // if (http_recv_info_p->mime_  wanna mime check here...
 
-    setupTargetSize(&nTargetWidth, &nTargetHeight, &dWidenRatio);
+    setupTargetSize(&nTargetWidth, &nTargetHeight, &nCrop, &dWidenRatio);
     // 生成したJPEGを置いておくバッファ。
     // いくら何でも圧縮率50%くらいにはなるでしょうという甘い考え。
     nMaxBuf = (nTargetWidth * nTargetHeight * 3) / 2;
@@ -441,22 +514,22 @@ http_send_resized_jpeg(int fd, HTTP_RECV_INFO *http_recv_info_p) {
     pNewJpeg = (UCHAR *)malloc(nMaxBuf);
     if (NULL == pNewJpeg) {
 	debug_log_output("memory allocation error\n");
-	return 1;
+	return 0;
     }
     nJpegSize = resizeJpeg(http_recv_info_p->send_filename,
 			   nTargetWidth, nTargetHeight,
-			   pNewJpeg, nMaxBuf, dWidenRatio);
+			   pNewJpeg, nMaxBuf, nCrop, dWidenRatio);
     if (nJpegSize == 0) {
 	debug_log_output("cannot resize\n");
 	free(pNewJpeg);
-	return 1;
+	return 0;
     }
 
     http_send_ok_header(fd, nJpegSize, "image/jpeg");
     send(fd, pNewJpeg, nJpegSize, 0);
 
     free(pNewJpeg);
-    return 0;
+    return 1; // Success
 }
 
 #endif // RESIZE_JPEG

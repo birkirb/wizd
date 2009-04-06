@@ -4,8 +4,8 @@
 // wizd:	MediaWiz Server daemon.
 //
 // 		wizd_main.c
-//											$Revision: 1.8 $
-//											$Date: 2004/12/18 15:59:58 $
+//											$Revision: 1.23 $
+//											$Date: 2006/10/05 16:26:44 $
 //
 //	すべて自己責任でおながいしまつ。
 //  このソフトについてVertexLinkに問い合わせないでください。
@@ -36,6 +36,8 @@ static void catch_SIGCHLD(int signo);
 
 extern int child_count;
 
+char	my_config_file[256];
+
 // **************************************************************************
 // * Main Program
 // **************************************************************************
@@ -59,6 +61,7 @@ int main(int argc, char *argv[])
 	// =============================================
 	// オプションチェック
 	// =============================================
+	my_config_file[0] = 0;
 	for (i=1; i<argc; i++)
 	{
 
@@ -81,6 +84,10 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-csplit") 		== 0)
 		{
 			vob_split = TRUE;
+		} else if (strcmp(argv[i], "-path") 		== 0)
+		{
+			i++;
+			chdir(argv[i]);
 		} else if (strcmp(argv[i], "-port") 		== 0)
 		{
 			i++;
@@ -89,6 +96,11 @@ int main(int argc, char *argv[])
 		{
 			i++;
 			new_name = argv[i];
+		} else if (strcmp(argv[i], "-c") 		== 0)
+		{
+			i++;
+			strcpy(my_config_file, argv[i]);
+			printf("Using config_file %s\n", my_config_file);
 		}
 	}
 

@@ -4,8 +4,8 @@
 // wizd:	MediaWiz Server daemon.
 //
 // 		wizd_tools.c
-//											$Revision: 1.22 $
-//											$Date: 2005/01/26 13:32:14 $
+//											$Revision: 1.26 $
+//											$Date: 2006/11/05 06:45:04 $
 //
 //	すべて自己責任でおながいしまつ。
 //  このソフトについてVertexLinkに問い合わせないでください。
@@ -24,6 +24,11 @@
 #include 		<sys/types.h>
 #include 		<fcntl.h>
 #include 		<unistd.h>
+# ifdef HAVE_W32API
+#include <shlobj.h>
+#include <objbase.h>
+#include <ole2.h>
+# endif
 
 #include		"wizd.h"
 #include		"wizd_tools.h"
@@ -32,6 +37,57 @@
 static unsigned char		debug_log_filename[WIZD_FILENAME_MAX];	// デバッグログ出力ファイル名(フルパス)
 static unsigned char		debug_log_initialize_flag  = (-1);	// デバッグログ初期化フラグ
 
+
+# ifdef HAVE_W32API
+// routine to find what a shortcut is pointing at
+int
+get_target(char *target_fname, char *retPath)
+{
+    HRESULT hres;
+    IShellLink *shell_link;
+    IPersistFile *persist_file;
+    int result = 0;
+	WCHAR wsz[MAX_PATH];
+
+    hres = OleInitialize(NULL);
+	if (hres != S_FALSE && hres != S_OK)
+		return (-1);
+
+    // Get a pointer to the IShellLink interface
+    hres = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
+			  &IID_IShellLink, (void **) &shell_link);
+
+	if (!SUCCEEDED(hres)) {
+		OleUninitialize();
+		return (-1);
+	}
+
+    // Get a pointer to the IPersistFile interface
+    hres = shell_link->lpVtbl->QueryInterface(shell_link, &IID_IPersistFile,
+					    (void **) &persist_file);
+
+	if (SUCCEEDED(hres)) {
+		// Ensure that the string is Unicode
+		MultiByteToWideChar(CP_ACP, 0, (LPCSTR) target_fname, -1, wsz, MAX_PATH);
+
+		// Load the shortcut
+		hres = persist_file->lpVtbl->Load(persist_file, wsz, STGM_READ);
+
+		if (SUCCEEDED(hres)) {
+			// read stuff from the link object and print it to the screen
+			shell_link->lpVtbl->GetPath(shell_link, retPath,
+							 MAX_PATH, NULL, SLGP_RAWPATH);
+		} else
+			result = -1;
+
+		// Release the pointer to the IPersistFile interface
+		persist_file->lpVtbl->Release(persist_file);
+	}
+
+	OleUninitialize();
+	return(result);
+}
+# endif
 
 /********************************************************************************/
 // sentence文字列内のkey文字列をrep文字列で置換する。
@@ -488,6 +544,37 @@ void 	cut_character_at_linetail(char *sentence, char cut_char)
 }
 
 
+void 	cut_whitespace_at_linetail(char *sentence)
+{
+	char	*source_p;
+	int		length, i;
+
+
+	if (sentence == NULL)
+		return;
+
+	length = strlen(sentence);	// 文字列長Get
+
+	source_p = sentence;
+	source_p += length;		// ワークポインタを文字列の最後にセット。
+
+
+	for (i=0; i<length; i++)	// 文字列の数だけ繰り返し。
+	{
+		source_p--;			// 一文字ずつ前へ。
+
+		if (isspace(*source_p))	// 削除キャラ ヒットした場合削除
+		{
+			*source_p = '\0';
+		}
+		else						// 違うキャラが出てきたところで終了。
+		{
+			break;
+		}
+	}
+
+	return;
+}
 
 /********************************************************************************/
 // sentence文字列内のunique_charが連続しているところを、unique_char1文字だけにする。
@@ -1016,17 +1103,13 @@ void conv_num_to_unit_string(unsigned char *sentence, u_int64_t file_size)
 //*******************************************************************
 void debug_log_initialize(const unsigned char *set_debug_log_filename)
 {
-	// 引数チェック
-	if (set_debug_log_filename == NULL)
-		return;
-
-	if ( strlen(set_debug_log_filename) == 0 )
-		return;
-
-
-	// デバッグログファイル名をセット。
-	strncpy(debug_log_filename, set_debug_log_filename,	sizeof(debug_log_filename) );
-
+	// Accept NULL or zero-length debug log filename, and output to stderr in that case
+	if (set_debug_log_filename == NULL) {
+		memset(debug_log_filename, 0, sizeof(debug_log_filename));
+	} else {
+		// デバッグログファイル名をセット。
+		strncpy(debug_log_filename, set_debug_log_filename,	sizeof(debug_log_filename) );
+	}
 	// デバッグログ 初期化完了フラグを0に。
 	debug_log_initialize_flag = 0;
 
@@ -1092,15 +1175,18 @@ void debug_log_output(char *fmt, ...)
 	// =====================
 
 	// ファイルオープン（追記モード)
-	fp = fopen(debug_log_filename, "a");
-	if ( fp == NULL )
-		return;
+	if(debug_log_filename[0] == 0) {
+		fwrite(buf, 1, strlen(buf), stdout);
+	} else {
+		fp = fopen(debug_log_filename, "a");
+		if ( fp == NULL )
+			return;
+		// 出力
+		fwrite(buf, 1, strlen(buf), fp );	// メッセージ実体を出力
 
-	// 出力
-	fwrite(buf, 1, strlen(buf), fp );	// メッセージ実体を出力
-
-	// ファイルクローズ
-	fclose( fp );
+		// ファイルクローズ
+		fclose( fp );
+	}
 
 	return;
 }
@@ -1196,6 +1282,29 @@ void extension_del_rename(unsigned char *rename_filename_p, size_t rename_filena
 
 
 	return;
+}
+
+// **************************************************************************
+// * Remove underscore(_), dash(-), tab characters
+// * and convert sequences of UPPERCASE into Uppercase
+// **************************************************************************
+void clean_buffer_text(char *buffer)
+{
+	int last_was_upper=0;
+	while(*buffer) {
+		if((*buffer == '\t') || (*buffer == '_') || (*buffer == '-'))
+			*buffer = ' ';
+		// Change sequences of UPPERCASE into Uppercase
+		if(isupper(*buffer)) {
+			if(last_was_upper)
+				*buffer = tolower(*buffer);
+			else
+				last_was_upper = 1;
+		} else {
+			last_was_upper = 0;
+		}
+		buffer++;
+	}
 }
 
 
@@ -1625,7 +1734,7 @@ char *my_strcasestr(const char *p1, const char *p2)
 char *path_sanitize(char *orig_dir, size_t dir_size)
 {
 	char *p;
-	char *q, *dir;
+	char *q, *dir, *alt;
 	char *buf;
 	size_t malloc_len;
 
@@ -1637,17 +1746,28 @@ char *path_sanitize(char *orig_dir, size_t dir_size)
 	p = buf;
 
 	dir = q = orig_dir;
+	if((dir[0] != 0) && (dir[1] == ':')) {
+		// Special handling for windows drive names
+		// Skip over and retain the drive and colon
+		*(p++) = *(q++);
+		*(p++) = *(q++);
+	}
 	while (q != NULL) {
 		dir = q;
-		while (*dir == '/') dir ++;
+		while ((*dir == '/') || (*dir == '\\')) dir ++;
 
 		q = strchr(dir, '/');
+		alt = strchr(dir, '\\');
+		if( (q == NULL) || ((alt != NULL) && (alt<q)) ) {
+			q = alt;
+		}
 		if (q != NULL) {
 			*q++ = '\0';
 		}
 
 		if (!strcmp(dir, "..")) {
 			p = strrchr(buf, '/');
+			if (p == NULL) p = strrchr(buf, '\\');
 			if (p == NULL) {
 				free(buf);
 				dir[0] = '\0';

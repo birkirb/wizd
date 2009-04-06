@@ -14,7 +14,7 @@
 static unsigned char	skin_path[WIZD_FILENAME_MAX];
 
 // prototype
-static unsigned char *skin_file_read(unsigned char *read_filename, unsigned long *malloc_size);
+unsigned char *skin_file_read(unsigned char *read_filename, unsigned long *malloc_size);
 
 SKIN_T *skin_open(char *filename)
 {
@@ -102,7 +102,7 @@ int skin_direct_send(int fd, SKIN_T *skin)
 //  ファイルサイズにあわせて、malloc()
 //  文字コード変換。
 // **************************************************************************
-static unsigned char *skin_file_read(unsigned char *read_filename, unsigned long *malloc_size )
+unsigned char *skin_file_read(unsigned char *read_filename, unsigned long *malloc_size )
 {
 	int		fd;
 	struct stat		file_stat;
@@ -178,6 +178,375 @@ static unsigned char *skin_file_read(unsigned char *read_filename, unsigned long
 }
 
 
+// ****************************************************************************************
+// Create the global skin data structure
+// ****************************************************************************************
+SKIN_REPLASE_GLOBAL_DATA_T *skin_create_global_data(HTTP_RECV_INFO *http_recv_info_p, int file_num)
+{
+	unsigned char	work_data[WIZD_FILENAME_MAX];
+	unsigned char	work_data2[WIZD_FILENAME_MAX];
+	unsigned char	work_filename[WIZD_FILENAME_MAX];
+
+	struct	stat	dir_stat;
+
+	char thumb = global_param.flag_default_thumb;
+
+	SKIN_REPLASE_GLOBAL_DATA_T *skin_rep_data_global_p=NULL;
+
+	skin_rep_data_global_p 	= malloc( sizeof(SKIN_REPLASE_GLOBAL_DATA_T) );
+	if ( skin_rep_data_global_p == NULL )
+	{
+		debug_log_output("malloc() error.");
+		return NULL;
+	}
+	memset(skin_rep_data_global_p, '\0', sizeof(SKIN_REPLASE_GLOBAL_DATA_T));
+
+	strcpy(skin_rep_data_global_p->request_uri, http_recv_info_p->request_uri);
+
+	// ---------------------------------
+	// Start of information formation for global indication
+	// ---------------------------------
+
+	if ( global_param.flag_allow_delete && (strcasecmp(http_recv_info_p->action, "delete") == 0) ) {
+		debug_log_output("action=delete: Enabling delete mode output");
+		skin_rep_data_global_p->delete_mode = 1;
+	}
+
+	if (strcasecmp(http_recv_info_p->option, "thumb") == 0) {
+		debug_log_output("option=thumb: Enabling thumbnail mode");
+		thumb = 1;
+	} else if(strcasecmp(http_recv_info_p->option, "details") == 0) {
+		debug_log_output("option=details: Enabling details listing mode");
+		thumb = 0;
+	}
+	if(thumb) {	
+		debug_log_output("thumb_row_max = %d", global_param.thumb_row_max);
+		debug_log_output("thumb_column_max = %d", global_param.thumb_column_max);
+		skin_rep_data_global_p->columns = global_param.thumb_column_max;
+		skin_rep_data_global_p->items_per_page = global_param.thumb_row_max * global_param.thumb_column_max;
+		skin_rep_data_global_p->filename_length_max = global_param.thumb_filename_length_max;
+	} else {
+		skin_rep_data_global_p->items_per_page = global_param.page_line_max;
+		skin_rep_data_global_p->columns = 0;
+		skin_rep_data_global_p->filename_length_max = global_param.menu_filename_length_max;
+		debug_log_output("page_line_max = %d", global_param.page_line_max);
+	}
+	if(skin_rep_data_global_p->items_per_page < 1)
+		skin_rep_data_global_p->items_per_page = 1;
+
+	// Number of files
+	debug_log_output("file_num = %d", file_num);
+	debug_log_output("items_per_page = %d", skin_rep_data_global_p->items_per_page);
+
+	// 最大ページ数計算
+	if ( file_num == 0 )
+	{
+		skin_rep_data_global_p->max_page = 1;
+	}
+	else
+	{
+		skin_rep_data_global_p->max_page = ((file_num-1) / skin_rep_data_global_p->items_per_page) + 1;
+	}
+	debug_log_output("max_page = %d", skin_rep_data_global_p->max_page);
+
+	// Current page calculation
+	if ( (http_recv_info_p->page <= 1 ) || (skin_rep_data_global_p->max_page < http_recv_info_p->page ) )
+		skin_rep_data_global_p->now_page = 1;
+	else
+		skin_rep_data_global_p->now_page = http_recv_info_p->page;
+
+	debug_log_output("now_page = %d", skin_rep_data_global_p->now_page);
+
+	// calculation of line to be shown on current page
+	if ( skin_rep_data_global_p->max_page == skin_rep_data_global_p->now_page ) // 最後のページ
+		skin_rep_data_global_p->now_page_line = file_num - (skin_rep_data_global_p->items_per_page * (skin_rep_data_global_p->max_page-1));
+	else	// 最後以外なら、表示最大数。
+		skin_rep_data_global_p->now_page_line = skin_rep_data_global_p->items_per_page;
+	debug_log_output("now_page_line = %d", skin_rep_data_global_p->now_page_line);
+
+
+	// Start file number calculation
+	skin_rep_data_global_p->start_file_num = ((skin_rep_data_global_p->now_page - 1) * skin_rep_data_global_p->items_per_page);
+	debug_log_output("start_file_num = %d", skin_rep_data_global_p->start_file_num);
+
+	if ( skin_rep_data_global_p->max_page == skin_rep_data_global_p->now_page ) // 最後のページ
+		skin_rep_data_global_p->end_file_num = file_num;
+	else // not last page
+		skin_rep_data_global_p->end_file_num = (skin_rep_data_global_p->start_file_num + skin_rep_data_global_p->items_per_page);
+	debug_log_output("start_file_num = %d", skin_rep_data_global_p->start_file_num);
+
+	// Prev folder calculation
+	skin_rep_data_global_p->prev_page =  1 ;
+	if ( skin_rep_data_global_p->now_page > 1 )
+		skin_rep_data_global_p->prev_page = skin_rep_data_global_p->now_page - 1;
+
+	// Next page/folder calculation
+	skin_rep_data_global_p->next_page = skin_rep_data_global_p->max_page ;
+	if ( skin_rep_data_global_p->max_page > skin_rep_data_global_p->now_page )
+		skin_rep_data_global_p->next_page = skin_rep_data_global_p->now_page + 1;
+
+	debug_log_output("prev_page=%d  next_page=%d", skin_rep_data_global_p->prev_page ,skin_rep_data_global_p->next_page);
+
+
+	// Formation for present path name indication (recv_uri - current_path_name [ client code ])
+	convert_language_code(	http_recv_info_p->recv_uri,
+							skin_rep_data_global_p->current_path_name,
+							sizeof(skin_rep_data_global_p->current_path_name),
+							global_param.server_language_code | CODE_HEX,
+							global_param.client_language_code );
+	debug_log_output("current_path = '%s'", skin_rep_data_global_p->current_path_name );
+
+	// -----------------------------------------------
+	// Forming the one for upper directory
+	// -----------------------------------------------
+	work_data[0] = 0;
+	work_data2[0] = 0;
+	if (get_parent_path(work_data, http_recv_info_p->recv_uri, sizeof(work_data)) == NULL) {
+		debug_log_output("FATAL ERROR! too long recv_uri.");
+		return NULL;
+	}
+	debug_log_output("parent_directory='%s'", work_data);
+
+	// Directory path with respect to one URI encoding.
+	uri_encode(skin_rep_data_global_p->parent_directory_link, sizeof(skin_rep_data_global_p->parent_directory_link), work_data, strlen(work_data));
+	// '?'add
+	strncat(skin_rep_data_global_p->parent_directory_link, "?", sizeof(skin_rep_data_global_p->parent_directory_link) - strlen(skin_rep_data_global_p->parent_directory_link));
+	// if sort
+	if ( strlen(http_recv_info_p->sort) > 0 ) {
+		snprintf(work_data, sizeof(work_data), "sort=%s&", http_recv_info_p->sort);
+		strncat(skin_rep_data_global_p->parent_directory_link, work_data, sizeof(skin_rep_data_global_p->parent_directory_link) - strlen(skin_rep_data_global_p->parent_directory_link));
+	}
+	if ( strlen(http_recv_info_p->option) > 0 ) {
+		snprintf(work_data, sizeof(work_data), "option=%s&", http_recv_info_p->option);
+		strncat(skin_rep_data_global_p->parent_directory_link, work_data, sizeof(skin_rep_data_global_p->parent_directory_link) - strlen(skin_rep_data_global_p->parent_directory_link));
+	}
+	if ( strlen(http_recv_info_p->dvdopt) > 0 ) {
+		snprintf(work_data, sizeof(work_data), "dvdopt=%s&", http_recv_info_p->dvdopt);
+		strncat(skin_rep_data_global_p->parent_directory_link, work_data, sizeof(skin_rep_data_global_p->parent_directory_link) - strlen(skin_rep_data_global_p->parent_directory_link));
+	}
+	if ( strlen(http_recv_info_p->search) > 0 ) {
+		snprintf(work_data, sizeof(work_data), "search%s=%s&", http_recv_info_p->search_str, http_recv_info_p->search);
+		strncat(skin_rep_data_global_p->parent_directory_link, work_data, sizeof(skin_rep_data_global_p->parent_directory_link) - strlen(skin_rep_data_global_p->parent_directory_link));
+	}
+	debug_log_output("parent_directory_link='%s'", skin_rep_data_global_p->parent_directory_link);
+
+	// For upper directory name indication
+	convert_language_code(	work_data,
+							skin_rep_data_global_p->parent_directory_name,
+							sizeof(skin_rep_data_global_p->parent_directory_name),
+							global_param.server_language_code | CODE_HEX,
+							global_param.client_language_code );
+	debug_log_output("parent_directory_name='%s'", skin_rep_data_global_p->parent_directory_link);
+
+
+	// -----------------------------------------------
+	// Forming for present directory next
+	// -----------------------------------------------
+
+	// Forming present directory name. First it converts to EUC.
+	switch (http_recv_info_p->default_file_type) {
+	  case TYPE_MOVIE:
+		strcpy(skin_rep_data_global_p->default_dir_type, "movie");
+		break;
+	  case TYPE_MUSIC:
+		strcpy(skin_rep_data_global_p->default_dir_type, "music");
+		break;
+	  case TYPE_JPEG:
+		strcpy(skin_rep_data_global_p->default_dir_type, "photo");
+		break;
+	  default:
+		strcpy(skin_rep_data_global_p->default_dir_type, "all");
+		break;
+	}
+	convert_language_code(	http_recv_info_p->recv_uri,
+							work_data,
+							sizeof(work_data),
+							global_param.server_language_code | CODE_HEX,
+							CODE_EUC );
+
+	// delete last dir char end with “/”
+	cut_character_at_linetail(work_data, '/');
+	// delete before  start with /
+	cut_before_last_character(work_data, '/');
+
+	// Adding ‘/’
+	strncat(work_data, "/", sizeof(work_data) - strlen(work_data) );
+
+	// CUT Exec
+	euc_string_cut_n_length(work_data, skin_rep_data_global_p->filename_length_max);
+
+	// Clean up name (remove underscores, change all upper to Title Case
+	// clean_buffer_text(work_data);
+
+	// Formation for present directory name indication (character code conversion)
+	convert_language_code(	work_data,
+							skin_rep_data_global_p->current_directory_name,
+							sizeof(skin_rep_data_global_p->current_directory_name),
+							CODE_EUC,
+							global_param.client_language_code );
+
+	debug_log_output("current_dir = '%s'", skin_rep_data_global_p->current_directory_name );
+
+
+	// The formation for present path name Link (URI encoding from recv_uri)
+	uri_encode(skin_rep_data_global_p->current_directory_link_no_param
+		, sizeof(skin_rep_data_global_p->current_directory_link_no_param)
+		, http_recv_info_p->recv_uri
+		, strlen(http_recv_info_p->recv_uri)
+	);
+	strncpy(skin_rep_data_global_p->current_directory_link
+		, skin_rep_data_global_p->current_directory_link_no_param
+		, sizeof(skin_rep_data_global_p->current_directory_link)
+	);
+
+	strncpy(skin_rep_data_global_p->current_directory_absolute, "http://", sizeof(skin_rep_data_global_p->current_directory_absolute));
+	strncat(skin_rep_data_global_p->current_directory_absolute, http_recv_info_p->recv_host, sizeof(skin_rep_data_global_p->current_directory_absolute) - strlen(skin_rep_data_global_p->current_directory_absolute));
+	strncpy(skin_rep_data_global_p->recv_host, http_recv_info_p->recv_host, sizeof(skin_rep_data_global_p->recv_host));
+
+
+	// ?を追加
+	strncat(skin_rep_data_global_p->current_directory_link, "?", sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link)); // '?'を追加
+	strncpy(skin_rep_data_global_p->current_directory_link_no_sort, skin_rep_data_global_p->current_directory_link, sizeof(skin_rep_data_global_p->current_directory_link_no_sort));
+	strncpy(skin_rep_data_global_p->current_directory_link_no_option, skin_rep_data_global_p->current_directory_link, sizeof(skin_rep_data_global_p->current_directory_link_no_option));
+	strncpy(skin_rep_data_global_p->current_directory_link_no_dvdopt, skin_rep_data_global_p->current_directory_link, sizeof(skin_rep_data_global_p->current_directory_link_no_dvdopt));
+
+	// When using 'showchapters', we need to retain this setting when changing pages
+	if (strncmp(http_recv_info_p->action, "showchapters", 12) == 0 ) {
+		snprintf(work_data, sizeof(work_data), "action=%s&", http_recv_info_p->action);
+		strncat(skin_rep_data_global_p->current_directory_link, work_data, sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link));
+	}
+	// sort=が指示されていた場合、それを引き継ぐ。
+	if ( strlen(http_recv_info_p->search) > 0 )
+	{
+		snprintf(work_data, sizeof(work_data), "search%s=%s&", http_recv_info_p->search_str, http_recv_info_p->search);
+		strncat(skin_rep_data_global_p->current_directory_link, work_data, sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link));
+		strncat(skin_rep_data_global_p->current_directory_link_no_option, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_option) - strlen(skin_rep_data_global_p->current_directory_link_no_option));
+		strncat(skin_rep_data_global_p->current_directory_link_no_dvdopt, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_dvdopt) - strlen(skin_rep_data_global_p->current_directory_link_no_dvdopt));
+	}
+	if ( strlen(http_recv_info_p->sort) > 0 )
+	{
+		snprintf(work_data, sizeof(work_data), "sort=%s&", http_recv_info_p->sort);
+		strncat(skin_rep_data_global_p->current_directory_link, work_data, sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link));
+		strncat(skin_rep_data_global_p->current_directory_link_no_option, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_option) - strlen(skin_rep_data_global_p->current_directory_link_no_option));
+		strncat(skin_rep_data_global_p->current_directory_link_no_dvdopt, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_dvdopt) - strlen(skin_rep_data_global_p->current_directory_link_no_dvdopt));
+	}
+	if ( strlen(http_recv_info_p->option) > 0 )
+	{
+		snprintf(work_data, sizeof(work_data), "option=%s&", http_recv_info_p->option);
+		strncat(skin_rep_data_global_p->current_directory_link, work_data, sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link));
+		strncat(skin_rep_data_global_p->current_directory_link_no_sort, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_sort) - strlen(skin_rep_data_global_p->current_directory_link_no_sort));
+		strncat(skin_rep_data_global_p->current_directory_link_no_dvdopt, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_dvdopt) - strlen(skin_rep_data_global_p->current_directory_link_no_dvdopt));
+	}
+	if ( strlen(http_recv_info_p->dvdopt) > 0 )
+	{
+		snprintf(work_data, sizeof(work_data), "dvdopt=%s&", http_recv_info_p->dvdopt);
+		strncat(skin_rep_data_global_p->current_directory_link, work_data, sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link));
+		strncat(skin_rep_data_global_p->current_directory_link_no_sort, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_sort) - strlen(skin_rep_data_global_p->current_directory_link_no_sort));
+		strncat(skin_rep_data_global_p->current_directory_link_no_option, work_data, sizeof(skin_rep_data_global_p->current_directory_link_no_option) - strlen(skin_rep_data_global_p->current_directory_link_no_option));
+	}
+	if ( http_recv_info_p->title > 0) {
+		snprintf(work_data, sizeof(work_data), "title=%d&", http_recv_info_p->title);
+		strncat(skin_rep_data_global_p->current_directory_link, work_data, sizeof(skin_rep_data_global_p->current_directory_link) - strlen(skin_rep_data_global_p->current_directory_link));
+	}
+	debug_log_output("current_directory_link='%s'", skin_rep_data_global_p->current_directory_link);
+	debug_log_output("current_directory_link_no_sort='%s'", skin_rep_data_global_p->current_directory_link_no_sort);
+	debug_log_output("current_directory_link_no_option='%s'", skin_rep_data_global_p->current_directory_link_no_option);
+	debug_log_output("current_directory_link_no_dvdopt='%s'", skin_rep_data_global_p->current_directory_link_no_dvdopt);
+	strncat(skin_rep_data_global_p->current_directory_absolute, skin_rep_data_global_p->current_directory_link, sizeof(skin_rep_data_global_p->current_directory_absolute) - strlen(skin_rep_data_global_p->current_directory_absolute));
+
+	debug_log_output("current_directory_absolute='%s'", skin_rep_data_global_p->current_directory_absolute);
+
+	// ------------------------------------ processing here for directory indication
+
+	// For directory existence file several indications
+	snprintf(skin_rep_data_global_p->file_num_str, sizeof(skin_rep_data_global_p->file_num_str), "%d", file_num );
+
+	// 	For present page indication
+	snprintf(skin_rep_data_global_p->now_page_str, sizeof(skin_rep_data_global_p->now_page_str), "%d", skin_rep_data_global_p->now_page );
+
+	// For full page several indications
+	snprintf(skin_rep_data_global_p->max_page_str, sizeof(skin_rep_data_global_p->max_page_str), "%d", skin_rep_data_global_p->max_page );
+
+	//for next page indication
+	snprintf(skin_rep_data_global_p->next_page_str, sizeof(skin_rep_data_global_p->next_page_str), "%d", skin_rep_data_global_p->next_page );
+
+	// 前のページ 表示用
+	snprintf(skin_rep_data_global_p->prev_page_str, sizeof(skin_rep_data_global_p->prev_page_str), "%d", skin_rep_data_global_p->prev_page );
+
+	// 開始ファイル番号表示用
+	if ( file_num == 0 )
+		snprintf(skin_rep_data_global_p->start_file_num_str, sizeof(skin_rep_data_global_p->start_file_num_str), "%d", skin_rep_data_global_p->start_file_num );
+	else
+		snprintf(skin_rep_data_global_p->start_file_num_str, sizeof(skin_rep_data_global_p->start_file_num_str), "%d", skin_rep_data_global_p->start_file_num +1 );
+
+	// For end file number indication
+	snprintf(skin_rep_data_global_p->end_file_num_str, sizeof(skin_rep_data_global_p->end_file_num_str), "%d", skin_rep_data_global_p->end_file_num  );
+
+	skin_rep_data_global_p->stream_dirs = 0;	// Subdirectories
+	skin_rep_data_global_p->stream_files = 0;	// Playable video files
+	skin_rep_data_global_p->music_files = 0;	// Playable music files
+	skin_rep_data_global_p->photo_files = 0;	// Playable photo files
+
+	// Whether or not PC it adds to the information of skin substitution
+	skin_rep_data_global_p->flag_pc = http_recv_info_p->flag_pc;
+	skin_rep_data_global_p->flag_hd = http_recv_info_p->flag_hd;
+
+	// Set up for the default playlists
+	strncpy(work_filename, http_recv_info_p->send_filename, sizeof(work_filename));
+	strncat(work_filename, DEFAULT_PHOTOLIST, sizeof(work_filename)-strlen(work_filename));
+	if( (0 == stat(work_filename, &dir_stat)) && S_ISREG(dir_stat.st_mode) ) {
+		snprintf(skin_rep_data_global_p->default_photolist, sizeof(skin_rep_data_global_p->default_photolist), "pod=\"2,1,%s%s?type=slideshow\"",
+			skin_rep_data_global_p->current_directory_absolute, DEFAULT_PHOTOLIST);
+	} else {
+		snprintf(work_filename, sizeof(work_filename), "%s/%s/%s", global_param.skin_root, global_param.skin_name, DEFAULT_PHOTOLIST);
+		duplex_character_to_unique(work_filename, '/');
+		if( (0 == stat(work_filename, &dir_stat)) && S_ISREG(dir_stat.st_mode) ) {
+			snprintf(skin_rep_data_global_p->default_photolist, sizeof(skin_rep_data_global_p->default_photolist), 
+				"pod=\"2,1,http://%s/%s?type=slideshow&sort=shuffle\"", http_recv_info_p->recv_host, DEFAULT_PHOTOLIST);
+		} else {
+			// No default photo list
+			strncpy(skin_rep_data_global_p->default_photolist, "vod=\"playlist\"", sizeof(skin_rep_data_global_p->default_photolist));
+		}
+	}
+
+	debug_log_output("Default photolist = '%s'", skin_rep_data_global_p->default_photolist);
+
+	strncpy(work_filename, http_recv_info_p->send_filename, sizeof(work_filename));
+	strncat(work_filename, DEFAULT_MUSICLIST, sizeof(work_filename)-strlen(work_filename));
+	if( (0 == stat(work_filename, &dir_stat)) && S_ISREG(dir_stat.st_mode) ) {
+		strncpy(skin_rep_data_global_p->default_musiclist, DEFAULT_MUSICLIST, sizeof(skin_rep_data_global_p->default_musiclist));
+	} else {
+		snprintf(work_filename, sizeof(work_filename), "%s/%s/%s", global_param.skin_root, global_param.skin_name, DEFAULT_MUSICLIST);
+		duplex_character_to_unique(work_filename, '/');
+		if( (0 == stat(work_filename, &dir_stat)) && S_ISREG(dir_stat.st_mode) ) {
+			strncpy(skin_rep_data_global_p->default_musiclist, DEFAULT_MUSICLIST, sizeof(skin_rep_data_global_p->default_musiclist));
+			// Always shuffle the default music list
+			strncat(skin_rep_data_global_p->default_musiclist, "?sort=shuffle", sizeof(skin_rep_data_global_p->default_musiclist) - strlen(skin_rep_data_global_p->default_musiclist));
+		} else {
+			// No default musiclist
+			strncpy(skin_rep_data_global_p->default_musiclist, "mute", sizeof(skin_rep_data_global_p->default_musiclist));
+		}
+	}
+
+	debug_log_output("Default musiclist = '%s'", skin_rep_data_global_p->default_musiclist);
+
+	// BODY tag onloadset= "$focus"
+	if (http_recv_info_p->focus[0]) {
+		// For safety uri_encode it does first.
+		// (to prevent, $focus = "start\"><a href=\"...."; hack. ;p)
+		uri_encode(work_data, sizeof(work_data)
+			, http_recv_info_p->focus, strlen(http_recv_info_p->focus));
+		snprintf(skin_rep_data_global_p->focus
+			, sizeof(skin_rep_data_global_p->focus)
+			, " onloadset=\"%s\"", work_data);
+
+	} else {
+		skin_rep_data_global_p->focus[0] = '\0'; /* nothing :) */
+	}
+
+	return skin_rep_data_global_p;
+}
+
 
 
 // **************************************************************************
@@ -187,10 +556,17 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 {
 	unsigned char	current_date[32];	// 現在の日付表示用
 	unsigned char	current_time[32];	// 現在の時刻表示用
+	char			workbuf[256];
+	int				i;
 
 	// ===============================
 	// = 削除キーワードを削除する
 	// ===============================
+#define REPLACE(a,b) replase_character(menu_work_p, menu_work_buf_size,\
+			SKIN_KEYWORD_##a, (b))
+#define REPLACE_G(a,b) replase_character(menu_work_p, menu_work_buf_size,\
+			SKIN_KEYWORD_##a, skin_rep_data_global_p->b)
+
 #define DELETE(a) cut_enclose_words(menu_work_p, menu_work_buf_size,\
 			SKIN_KEYWORD_DEL_##a, SKIN_KEYWORD_DEL_##a##_E)
 
@@ -235,11 +611,21 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 		DELETE(IS_PHOTO_FILES);
 	}
 
-	// クライアントがPCのときとそうじゃないとき
-	if ( skin_rep_data_global_p->flag_pc == 1 ) {
-		DELETE(IF_CLIENT_IS_PC);
+	// Remove any delete references when this mode is disabled
+	if ( global_param.flag_allow_delete == 0 ) {
+		DELETE(CAN_DELETE);
+	}
+
+	if ( skin_rep_data_global_p->flag_hd == 1 ) {
+		DELETE(IF_CLIENT_IS_NOT_HD);
 	} else {
+		DELETE(IF_CLIENT_IS_HD);
+	}
+
+	if ( skin_rep_data_global_p->flag_pc == 1 ) {
 		DELETE(IF_CLIENT_IS_NOT_PC);
+	} else {
+		DELETE(IF_CLIENT_IS_PC);
 	}
 
 	// ?focus が指定されているときとそうじゃないとき
@@ -250,18 +636,84 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 		// focus が指定されているときは 削除
 		DELETE(IF_FOCUS_IS_SPECIFIED);
 	}
+
+	// favorites
+	for (i = 1; i < 11; i++) {
+		int test;
+
+		test = global_param.favorites[i - 1][0] == '\0';
+
+		switch (i) {
+		  case 1:
+			if (test)
+				DELETE(IS_NO_FAVORITES1);
+			else
+				REPLACE(FAVORITES1, global_param.favorites[i - 1]);
+			break;
+		  case 2:
+			if (test)
+				DELETE(IS_NO_FAVORITES2);
+			else
+				REPLACE(FAVORITES2, global_param.favorites[i - 1]);
+			break;
+		  case 3:
+			if (test)
+				DELETE(IS_NO_FAVORITES3);
+			else
+				REPLACE(FAVORITES3, global_param.favorites[i - 1]);
+			break;
+		  case 4:
+			if (test)
+				DELETE(IS_NO_FAVORITES4);
+			else
+				REPLACE(FAVORITES4, global_param.favorites[i - 1]);
+			break;
+		  case 5:
+			if (test)
+				DELETE(IS_NO_FAVORITES5);
+			else
+				REPLACE(FAVORITES5, global_param.favorites[i - 1]);
+			break;
+		  case 6:
+			if (test)
+				DELETE(IS_NO_FAVORITES6);
+			else
+				REPLACE(FAVORITES6, global_param.favorites[i - 1]);
+			break;
+		  case 7:
+			if (test)
+				DELETE(IS_NO_FAVORITES7);
+			else
+				REPLACE(FAVORITES7, global_param.favorites[i - 1]);
+			break;
+		  case 8:
+			if (test)
+				DELETE(IS_NO_FAVORITES8);
+			else
+				REPLACE(FAVORITES8, global_param.favorites[i - 1]);
+			break;
+		  case 9:
+			if (test)
+				DELETE(IS_NO_FAVORITES9);
+			else
+				REPLACE(FAVORITES9, global_param.favorites[i - 1]);
+			break;
+		  case 10:
+			if (test)
+				DELETE(IS_NO_FAVORITES10);
+			else
+				REPLACE(FAVORITES10, global_param.favorites[i - 1]);
+			break;
+		}
+	}
+
 #undef DELETE
 	// =============
 	// = 置換実行
 	// =============
 
-#define REPLACE(a,b) replase_character(menu_work_p, menu_work_buf_size,\
-			SKIN_KEYWORD_##a, (b))
-#define REPLACE_G(a,b) replase_character(menu_work_p, menu_work_buf_size,\
-			SKIN_KEYWORD_##a, skin_rep_data_global_p->b)
-
 	conv_time_to_date_string(current_date, time(NULL));
-	conv_time_to_time_string(current_time, time(NULL));
+	conv_time_to_string(current_time, time(NULL));
 
 	// SERVER_NAME
 	REPLACE(SERVER_NAME, SERVER_NAME);
@@ -277,14 +729,34 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 	else
 		REPLACE(DVD_OPTIONS, "none");
 
-	REPLACE(CLIENT_CHARSET, global_param.client_language_code == CODE_SJIS ? "Shift_JIS" : "euc-jp");
+	if (global_param.flag_default_search_by_alias)
+		REPLACE(ALIAS_SEARCH, "checked");
+	else
+		REPLACE(ALIAS_SEARCH, "");
+
+	if (global_param.search[0] != '\0')
+		REPLACE(SEARCH_STR, global_param.search);
+	else
+		REPLACE(SEARCH_STR, "");
+
+	if (global_param.default_search_alias[0] != '\0') {
+		sprintf(workbuf, "&lsearch=/%s/", global_param.default_search_alias);
+		REPLACE(DEFAULT_SEARCH_ALIAS, workbuf);
+	} else
+		REPLACE(DEFAULT_SEARCH_ALIAS, "");
+
+	REPLACE(CLIENT_CHARSET, global_param.client_language_code == CODE_SJIS ? "Shift_JIS" : "iso-8859-1");
 
 	REPLACE_G(SERVER_ADDRESS, recv_host);
+	REPLACE_G(CURRENT_REQUEST_URI, request_uri);
 	REPLACE_G(CURRENT_PATH, current_path_name);
 	REPLACE_G(CURRENT_DIR_NAME, current_directory_name);
 	REPLACE_G(CURRENT_PATH_LINK, current_directory_link);
 	REPLACE_G(CURRENT_PATH_FULL_LINK, current_directory_absolute);
 	REPLACE_G(CURRENT_PATH_LINK_NO_PARAM, current_directory_link_no_param);
+	REPLACE_G(CURRENT_PATH_LINK_NO_SORT, current_directory_link_no_sort);
+	REPLACE_G(CURRENT_PATH_LINK_NO_DVDOPT, current_directory_link_no_dvdopt);
+	REPLACE_G(CURRENT_PATH_LINK_NO_OPTION, current_directory_link_no_option);
 	REPLACE_G(PARLENT_DIR_LINK, parent_directory_link );
 	REPLACE_G(CURRENT_PAGE, now_page_str);
 	REPLACE_G(MAX_PAGE, max_page_str);
@@ -295,6 +767,7 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 	REPLACE_G(END_FILE_NUM, end_file_num_str);
 	REPLACE_G(ONLOADSET_FOCUS, focus);
 	REPLACE_G(SECRET_DIR_LINK, secret_dir_link_html);
+	REPLACE_G(DEFAULT_TYPE, default_dir_type);
 
 	REPLACE_G(DEFAULT_PHOTOLIST, default_photolist);
 	REPLACE_G(DEFAULT_MUSICLIST, default_musiclist);
@@ -315,30 +788,54 @@ void replase_skin_line_data(unsigned char *menu_work_p, int menu_work_buf_size, 
 	// ===============================
 	// = 削除キーワードを削除する
 	// ===============================
+#define REPLACE(a,b) replase_character(menu_work_p, menu_work_buf_size,\
+			SKIN_KEYWORD_LINE_##a, (b))
+#define REPLACE_L(a,b) replase_character(menu_work_p, menu_work_buf_size,\
+			SKIN_KEYWORD_LINE_##a, skin_rep_data_line_p->b)
+
 #define DELETE(a) cut_enclose_words(menu_work_p, menu_work_buf_size,\
 			SKIN_KEYWORD_DEL_##a, SKIN_KEYWORD_DEL_##a##_E)
 
-	if ( skin_rep_data_line_p->mp3_id3v1_flag == 0 ) {
+	if (!global_param.flag_read_mp3_tag)
 		DELETE(IS_NO_MP3_TAGS);		// MP3タグ無い場合
-	} else {
+	else if (strcasecmp(skin_rep_data_line_p->file_extension, "mp3") == 0) {
 		DELETE(IS_HAVE_MP3_TAGS);	// MP3タグ存在してる場合
+	} else {
+		DELETE(IS_NO_MP3_TAGS);		// MP3タグ無い場合
 	}
+
+	if (!global_param.flag_read_avi_tag)
+		DELETE(IS_NOT_HAVE_AVI_TAGS);
+	else if (strcasecmp(skin_rep_data_line_p->file_extension, "avi") == 0) {
+		DELETE(IS_HAVE_AVI_TAGS);
+	} else
+		DELETE(IS_NOT_HAVE_AVI_TAGS);
 
 	if ( skin_rep_data_line_p->row_num % 2 == 0 ) {
 		DELETE(IF_LINE_IS_EVEN);	// 偶数行
 	} else {
 		DELETE(IF_LINE_IS_ODD);		// 奇数行
 	}
+
+	if ( skin_rep_data_line_p->is_current_page == 0 ) {
+		DELETE(IS_CURRENT_PAGE);	// 偶数行
+	} else {
+		DELETE(IS_NOT_CURRENT_PAGE);	// 偶数行
+	}
+
+	if (skin_rep_data_line_p->html_link[0] != 0) {
+		REPLACE_L(HTML_LINK, html_link);
+		DELETE(IF_NO_HTML_LINK);
+		// printf("html file is %s\n", skin_rep_data_line_p->html_link);
+	} else {
+		DELETE(IF_HAVE_HTML_LINK);
+	}
+
 #undef DELETE
 
 	// =============
 	//  置換実行
 	// =============
-
-#define REPLACE(a,b) replase_character(menu_work_p, menu_work_buf_size,\
-			SKIN_KEYWORD_LINE_##a, (b))
-#define REPLACE_L(a,b) replase_character(menu_work_p, menu_work_buf_size,\
-			SKIN_KEYWORD_LINE_##a, skin_rep_data_line_p->b)
 
 	snprintf(row_string, sizeof(row_string), "%d"
 		, skin_rep_data_line_p->row_num );
@@ -349,6 +846,9 @@ void replase_skin_line_data(unsigned char *menu_work_p, int menu_work_buf_size, 
 	REPLACE_L(FILE_NAME, file_name);
 	REPLACE_L(FILE_NAME_NO_EXT, file_name_no_ext);
 	REPLACE_L(FILE_EXT, file_extension);
+	REPLACE_L(FILE_IMAGE, file_image);
+
+	REPLACE_L(INFO_LINK, info_link);
 
 	REPLACE_L(FILE_LINK, file_uri_link);
 	REPLACE_L(CHAPTER_LINK, chapter_link);
@@ -373,7 +873,14 @@ void replase_skin_line_data(unsigned char *menu_work_p, int menu_work_buf_size, 
 	REPLACE_L(MP3TAG_ARTIST, mp3_id3v1_artist);
 	REPLACE_L(MP3TAG_YEAR, mp3_id3v1_year);
 	REPLACE_L(MP3TAG_COMMENT,mp3_id3v1_comment);
-	REPLACE_L(MP3TAG_TITLE_INFO, mp3_id3v1_title_info_limited);
+	REPLACE_L(MP3TAG_TITLE_INFO, mp3_id3v1_title_info);
+	REPLACE_L(MP3TAG_TITLE_INFO_LIMITED, mp3_id3v1_title_info_limited);
+
+	REPLACE_L(MP3TAG_GENRE, mp3_id3v1_genre); 
+	REPLACE_L(MP3TAG_BITRATE,  mp3_id3v1_bitrate);
+	REPLACE_L(MP3TAG_STEREO,  mp3_id3v1_stereo);
+	REPLACE_L(MP3TAG_FREQ,  mp3_id3v1_frequency);
+	REPLACE_L(MP3TAG_TRACK,  mp3_id3v1_track);
 
 	REPLACE_L(AVI_FPS, avi_fps);
 	REPLACE_L(AVI_DURATION, avi_duration);

@@ -1,7 +1,7 @@
 .SUFFIXES: .c .o .obj
 
 CVS = cvs
-CFLAGS += -fPIC
+#CFLAGS += -fPIC
 
 all: nkfwrap.o nkfwrap_test
 

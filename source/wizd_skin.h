@@ -29,6 +29,9 @@ typedef struct  {
 	unsigned char	current_directory_link[WIZD_FILENAME_MAX];	// 現ディレクトリ Link用（URIエンコード済み）
 	unsigned char	current_directory_absolute[FILENAME_MAX];	// 現ディレクトリLink用（URIエンコード済み）
 	unsigned char	current_directory_link_no_param[WIZD_FILENAME_MAX];	// 現ディレクトリ Link用（URIエンコード済み）
+	unsigned char	current_directory_link_no_sort[WIZD_FILENAME_MAX];
+	unsigned char	current_directory_link_no_option[WIZD_FILENAME_MAX];
+	unsigned char	current_directory_link_no_dvdopt[WIZD_FILENAME_MAX];
 
 	unsigned char	parent_directory_name[WIZD_FILENAME_MAX];	// 親ディレクトリ表示用
 	unsigned char	parent_directory_link[WIZD_FILENAME_MAX];	// 親ディレクトリLink用（URIエンコード済み）
@@ -48,11 +51,25 @@ typedef struct  {
 	unsigned char	default_photolist[WIZD_FILENAME_MAX];
 	unsigned char	default_musiclist[WIZD_FILENAME_MAX];
 
+	int		filename_length_max;
+
 	int		stream_files;	// 再生可能ファイル数
 	int		photo_files;
 	int		music_files;
 	int		stream_dirs;
 
+	int		columns;
+	int		items_per_page;
+	int		now_page;		// Present page
+	int		max_page;		// 最大ページ番号
+	int		now_page_line;	// number of lines
+	int		start_file_num;	// start file number of the page
+	int		end_file_num;	// 現在ページの表示終了ファイル番号
+
+	int		next_page;		// next page if not max page
+	int		prev_page;		// 一つ前のページ（無ければ 1)
+
+	int		delete_mode;		// When true, allow deleting files from client
 
 	// 隠しディレクトリ情報
 	unsigned char	secret_dir_link_html[512];
@@ -60,12 +77,17 @@ typedef struct  {
 	// クライアントがPCかどうか
 	int		flag_pc;
 
+	// True when the client is using HD resolution
+	int		flag_hd;
+
+	char		default_dir_type[32];
+	unsigned char 	request_uri[WIZD_FILENAME_MAX];
+
 } SKIN_REPLASE_GLOBAL_DATA_T;
 
 
 // スキン置換用データ。（ファイル）
 typedef struct  {
-	int				stream_type;			// ストリームファイルか否か
 	int				menu_file_type;			// ファイルの種類
 
 	unsigned char	file_name[255];			// ファイル名表示用(文字コード調整済み)
@@ -105,6 +127,12 @@ typedef struct  {
 	unsigned char	mp3_id3v1_title_info[128*4];			// MP3 曲名[アルバム名/アーティスト] まとめて表示
 	unsigned char	mp3_id3v1_title_info_limited[128*4];	// MP3 曲名[アルバム名/アーティスト] まとめて表示(字数制限あり)
 
+	unsigned char	mp3_id3v1_genre[128];
+	unsigned char	mp3_id3v1_bitrate[128];
+	unsigned char	mp3_id3v1_stereo[128];
+	unsigned char	mp3_id3v1_frequency[128];
+	unsigned char	mp3_id3v1_track[128];
+
 	unsigned char	avi_fps[16];
 	unsigned char	avi_duration[32];
 	unsigned char	avi_vcodec[128];
@@ -112,6 +140,14 @@ typedef struct  {
 	unsigned char	avi_hvcodec[128];
 	unsigned char	avi_hacodec[128];
 	unsigned char	avi_is_interleaved[32];
+
+	/* XXX */
+	char			file_image[255];
+	/* XXX */
+
+	int				is_current_page;
+	unsigned char	info_link[WIZD_FILENAME_MAX];
+	unsigned char	html_link[WIZD_FILENAME_MAX];
 
 } SKIN_REPLASE_LINE_DATA_T;
 
@@ -159,45 +195,56 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 void replase_skin_line_data(unsigned char *menu_work_p, int menu_work_buf_size, SKIN_REPLASE_LINE_DATA_T *skin_rep_data_line_p);
 
 void skin_direct_replace_image_viewer(SKIN_T *skin, SKIN_REPLASE_IMAGE_VIEWER_DATA_T *image_viewer_info_p);
+SKIN_REPLASE_GLOBAL_DATA_T *skin_create_global_data(HTTP_RECV_INFO *http_recv_info_p, int file_num);
 
 // --------------------------------------------------------------------------
 
 #define		SKIN_MENU_CONF						"wizd_skin.conf"
 
 #define		SKIN_MENU_HEAD_HTML					"head.html"
-#define		SKIN_MENU_LINE_MOVIE_FILE_HTML		"line_movie.html"
-#define		SKIN_MENU_LINE_MUSIC_FILE_HTML		"line_music.html"
-#define		SKIN_MENU_LINE_IMAGE_FILE_HTML		"line_image.html"
-#define		SKIN_MENU_LINE_DOCUMENT_FILE_HTML	"line_document.html"
-#define		SKIN_MENU_LINE_UNKNOWN_FILE_HTML	"line_unknown.html"
-#define		SKIN_MENU_LINE_SVI_FILE_HTML		"line_svi_file.html"
-#define		SKIN_MENU_LINE_DIR_HTML				"line_dir.html"
-#define		SKIN_MENU_LINE_PSEUDO_DIR_HTML		"line_pseudo.html"
-#define		SKIN_MENU_LINE_JPEG_FILE_HTML		"line_jpeg.html"
-#define		SKIN_MENU_LINE_URL_FILE_HTML		"line_url.html"
-#define		SKIN_MENU_LINE_DELETE_FILE_HTML		"line_delete.html"
 #define		SKIN_MENU_TAIL_HTML					"tail.html"
+
+#define		SKIN_MENU_THUMB_HEAD_HTML				"thumb_head.html"
+#define		SKIN_MENU_THUMB_TAIL_HTML				"thumb_tail.html"
+
+#define     SKIN_MENU_MIDHEAD_HTML                  "midhead.html"
+#define     SKIN_MENU_THUMB_MIDHEAD_HTML            "thumb_midhead.html"
+#define     SKIN_MENU_MID_LINE_HTML                 "line_middle.html"
+#define     SKIN_MENU_MIDTAIL_HTML                  "midtail.html"
+#define     SKIN_MENU_THUMB_MIDTAIL_HTML            "thumb_midtail.html"
+
+#define     SKIN_MENU_NAVHEAD_HTML                  "navhead.html"
+#define     SKIN_MENU_NAV_LINE_HTML            		"line_nav.html"
+#define     SKIN_MENU_NAVTAIL_HTML            		"navtail.html"
 
 #define		SKIN_DELETE_HEAD_HTML					"delete_head.html"
 #define		SKIN_DELETE_TAIL_HTML					"delete_tail.html"
 #define		SKIN_DELETE_CONFIRM_HTML				"delete_confirm.html"
 
+#define     SKIN_MENU_ALBUM_HTML            		"line_album.html"
+
 #ifdef NEED_SKIN_MAPPING_DEFINITION
 SKIN_MAPPING_T skin_mapping[] = {
-	{TYPE_UNKNOWN,		SKIN_MENU_LINE_UNKNOWN_FILE_HTML},
-	{TYPE_DIRECTORY,	SKIN_MENU_LINE_DIR_HTML},
-	{TYPE_PSEUDO_DIR,	SKIN_MENU_LINE_PSEUDO_DIR_HTML},
-	{TYPE_MOVIE,		SKIN_MENU_LINE_MOVIE_FILE_HTML},
-	{TYPE_PLAYLIST,		SKIN_MENU_LINE_MOVIE_FILE_HTML}, // use movie one...
-	{TYPE_MUSIC,		SKIN_MENU_LINE_MUSIC_FILE_HTML},
-	{TYPE_MUSICLIST,	SKIN_MENU_LINE_MUSIC_FILE_HTML}, // use music one...
-	{TYPE_IMAGE,		SKIN_MENU_LINE_IMAGE_FILE_HTML},
-	{TYPE_DOCUMENT,		SKIN_MENU_LINE_DOCUMENT_FILE_HTML},
-	{TYPE_SVI,			SKIN_MENU_LINE_SVI_FILE_HTML},
-	{TYPE_JPEG,			SKIN_MENU_LINE_JPEG_FILE_HTML},
-	{TYPE_URL,		SKIN_MENU_LINE_URL_FILE_HTML},
-	{TYPE_DELETE,		SKIN_MENU_LINE_DELETE_FILE_HTML},
-	{-1,				NULL},
+	{TYPE_UNKNOWN,		"unknown"},
+	{TYPE_DIRECTORY,	"dir"},
+	{TYPE_VIDEO_TS,	"videots"},
+	{TYPE_PSEUDO_DIR,	"pseudo"},
+	{TYPE_MOVIE,		"movie"},
+	{TYPE_PLAYLIST,		"playlist"},
+	{TYPE_MUSIC,		"music"},
+	{TYPE_MUSICLIST,	"musiclist"},
+	{TYPE_IMAGE,		"image"},
+	{TYPE_DOCUMENT,		"document"},
+	{TYPE_SVI,		"svi"},
+	{TYPE_JPEG,		"jpeg"},
+	{TYPE_URL,		"url"},
+	{TYPE_ISO,		"iso"},
+	{TYPE_DELETE,		"delete"},
+	{TYPE_CHAPTER,		"chapter"},
+	{TYPE_ROW,		"row"},
+	{TYPE_MP3INFO,		"mp3info"},
+	{TYPE_AVIINFO,		"aviinfo"},
+	{-1,			NULL},
 };
 #else
 extern SKIN_MAPPING_T skin_mapping[];
@@ -217,6 +264,11 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_CURRENT_PATH_LINK	"<!--WIZD_INSERT_CURRENT_PATH_LINK-->"	// 現PATH。LINK用。URIエンコード済み
 #define		SKIN_KEYWORD_CURRENT_PATH_FULL_LINK	"<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->"
 #define		SKIN_KEYWORD_CURRENT_PATH_LINK_NO_PARAM	"<!--WIZD_INSERT_CURRENT_PATH_LINK_NO_PARAM-->"	// 現PATH。LINK用。URIエンコード済み
+#define		SKIN_KEYWORD_CURRENT_PATH_LINK_NO_SORT		"<!--WIZD_INSERT_CURRENT_PATH_LINK_NO_SORT-->"
+#define		SKIN_KEYWORD_CURRENT_PATH_LINK_DVDOPT		"<!--WIZD_INSERT_CURRENT_PATH_LINK_DVDOPT-->"
+#define		SKIN_KEYWORD_CURRENT_PATH_LINK_NO_DVDOPT	"<!--WIZD_INSERT_CURRENT_PATH_LINK_NO_DVDOPT-->"
+#define		SKIN_KEYWORD_CURRENT_PATH_LINK_NO_OPTION	"<!--WIZD_INSERT_CURRENT_PATH_LINK_NO_OPTION-->"
+#define		SKIN_KEYWORD_CURRENT_REQUEST_URI	"<!--WIZD_INSERT_CURRENT_URI-->"
 
 
 #define		SKIN_KEYWORD_CURRENT_PAGE		"<!--WIZD_INSERT_CURRENT_PAGE-->"		// 現在のページ
@@ -241,6 +293,13 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_LINE_FILE_LINK			"<!--WIZD_INSERT_LINE_FILE_LINK-->"			// ファイル名 リンク用 URIエンコード
 #define		SKIN_KEYWORD_LINE_CHAPTER_LINK		"<!--WIZD_INSERT_LINE_CHAPTER_LINK-->"
 #define		SKIN_KEYWORD_LINE_CHAPTER_STR		"<!--WIZD_INSERT_LINE_CHAPTER_STR-->"
+/* XXX */
+#define		SKIN_KEYWORD_LINE_FILE_IMAGE		"<!--WIZD_INSERT_LINE_FILE_IMAGE-->"			// ファイル名 表示用
+
+#define		SKIN_KEYWORD_LINE_INFO_LINK		    "<!--WIZD_INSERT_LINE_INFO_LINK-->"			// ファイル名 表示用
+
+#define		SKIN_KEYWORD_LINE_HTML_LINK		    "<!--WIZD_INSERT_LINE_HTML_LINK-->"			// ファイル名 表示用
+/* XXX */
 
 #define		SKIN_KEYWORD_LINE_TIMESTAMP		"<!--WIZD_INSERT_LINE_TIMESTAMP-->"		// タイムスタンプ 日時(YYYY/MM/DD HH:MM) 表示用
 
@@ -272,7 +331,15 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_LINE_MP3TAG_YEAR		"<!--WIZD_INSERT_LINE_MP3TAG_YEAR-->"		// MP3タグ 制作年度
 #define		SKIN_KEYWORD_LINE_MP3TAG_COMMENT	"<!--WIZD_INSERT_LINE_MP3TAG_COMMENT-->"	// MP3タグ コメント
 
+#define		SKIN_KEYWORD_LINE_MP3TAG_GENRE	    "<!--WIZD_INSERT_LINE_MP3TAG_GENRE-->"	// MP3タグ コメント
+#define		SKIN_KEYWORD_LINE_MP3TAG_BITRATE	"<!--WIZD_INSERT_LINE_MP3TAG_BITRATE-->"	// MP3タグ コメント
+#define		SKIN_KEYWORD_LINE_MP3TAG_STEREO		"<!--WIZD_INSERT_LINE_MP3TAG_STEREO-->"	// MP3タグ コメント
+#define		SKIN_KEYWORD_LINE_MP3TAG_FREQ		"<!--WIZD_INSERT_LINE_MP3TAG_FREQ-->"	// MP3タグ コメント
+#define		SKIN_KEYWORD_LINE_MP3TAG_TRACK		"<!--WIZD_INSERT_LINE_MP3TAG_TRACK-->"	// MP3タグ コメント
+
 #define		SKIN_KEYWORD_LINE_MP3TAG_TITLE_INFO	"<!--WIZD_INSERT_LINE_MP3TAG_TITLE_INFO-->"	// MP3タグ タイトル[アルバム名/アーティスト] 表示(menu_filename_length_maxによる制限も効く)
+
+#define		SKIN_KEYWORD_LINE_MP3TAG_TITLE_INFO_LIMITED	"<!--WIZD_INSERT_LINE_MP3TAG_TITLE_INFO_LIMITED-->"
 
 #define		SKIN_KEYWORD_LINE_AVI_FPS		"<!--WIZD_INSERT_LINE_AVI_FPS-->"	// AVIのFPS
 
@@ -313,6 +380,9 @@ extern SKIN_MAPPING_T skin_mapping[];
 
 #define		SKIN_KEYWORD_DEL_IS_NO_PHOTO_FILES		"<!--WIZD_DELETE_IS_NO_PHOTO_FILES-->"
 #define		SKIN_KEYWORD_DEL_IS_NO_PHOTO_FILES_E	"<!--/WIZD_DELETE_IS_NO_PHOTO_FILES-->"
+
+#define		SKIN_KEYWORD_DEL_CAN_DELETE		"<!--WIZD_CAN_DELETE-->"
+#define		SKIN_KEYWORD_DEL_CAN_DELETE_E		"<!--/WIZD_CAN_DELETE-->"
 
 /* 新規, DELETE (IF THERE) IS NO... と読む */
 // 前ページが存在しない場合 (HEAD/TAILのみ)
@@ -359,6 +429,12 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_DEL_IS_HAVE_MP3_TAGS		"<!--WIZD_DELETE_IS_HAVE_MP3_TAGS-->"
 #define		SKIN_KEYWORD_DEL_IS_HAVE_MP3_TAGS_E		"<!--/WIZD_DELETE_IS_HAVE_MP3_TAGS-->"
 
+// MP3タグが存在するとき (LINEのみ)
+#define		SKIN_KEYWORD_DEL_IS_NOT_HAVE_AVI_TAGS		"<!--WIZD_DELETE_IS_NOT_HAVE_AVI_TAGS-->"
+#define		SKIN_KEYWORD_DEL_IS_NOT_HAVE_AVI_TAGS_E		"<!--/WIZD_DELETE_IS_NOT_HAVE_AVI_TAGS-->"
+#define		SKIN_KEYWORD_DEL_IS_HAVE_AVI_TAGS		"<!--WIZD_DELETE_IS_HAVE_AVI_TAGS-->"
+#define		SKIN_KEYWORD_DEL_IS_HAVE_AVI_TAGS_E		"<!--/WIZD_DELETE_IS_HAVE_AVI_TAGS-->"
+
 
 // 行が奇数/偶数のとき (LINEのみ)
 #define		SKIN_KEYWORD_DEL_IF_LINE_IS_ODD			"<!--WIZD_IF_LINE_IS_EVEN-->"	// 行が奇数のとき削除
@@ -369,13 +445,19 @@ extern SKIN_MAPPING_T skin_mapping[];
 
 
 // クライアントがPCのとき削除
-#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_PC		"<!--WIZD_IF_CLIENT_IS_NOT_PC-->"
-#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_PC_E		"<!--/WIZD_IF_CLIENT_IS_NOT_PC-->"
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_NOT_PC		"<!--WIZD_IF_CLIENT_IS_NOT_PC-->"
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_NOT_PC_E		"<!--/WIZD_IF_CLIENT_IS_NOT_PC-->"
 
 // クライアントがPCではないとき削除
-#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_NOT_PC		"<!--WIZD_IF_CLIENT_IS_PC-->"
-#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_NOT_PC_E		"<!--/WIZD_IF_CLIENT_IS_PC-->"
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_PC		"<!--WIZD_IF_CLIENT_IS_PC-->"
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_PC_E		"<!--/WIZD_IF_CLIENT_IS_PC-->"
 
+// Skin sections which depend on whether or not the client is using HD resolution
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_HD		"<!--WIZD_IF_CLIENT_IS_HD-->"
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_HD_E		"<!--/WIZD_IF_CLIENT_IS_HD-->"
+
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_NOT_HD		"<!--WIZD_IF_CLIENT_IS_NOT_HD-->"
+#define		SKIN_KEYWORD_DEL_IF_CLIENT_IS_NOT_HD_E		"<!--/WIZD_IF_CLIENT_IS_NOT_HD-->"
 
 // focus が指定されているとき削除
 #define		SKIN_KEYWORD_DEL_IF_FOCUS_IS_SPECIFIED		"<!--WIZD_IF_FOCUS_IS_NOT_SPECIFIED-->"
@@ -391,6 +473,8 @@ extern SKIN_MAPPING_T skin_mapping[];
 
 #define		SKIN_IMAGE_VIEWER_HTML 	"image_viewer.html"	// ImageViewerのスキン
 #define		SKIN_JPEG_IMAGE_VIEWER_HTML 	"jpeg_image_viewer.html"	// ImageViewerのスキン
+#define		SKIN_OPTION_MENU_HTML 	"option_menu.html"
+
 
 #define		SKIN_KEYWORD_IMAGE_VIEWER_WIDTH		"<!--WIZD_INSERT_IMAGE_VIEWER_WIDTH-->"		// ImageViewerの表示横幅
 #define		SKIN_KEYWORD_IMAGE_VIEWER_HEIGHT	"<!--WIZD_INSERT_IMAGE_VIEWER_HEIGHT-->"	// ImageViewerの表示高さ
@@ -407,5 +491,58 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_DEL_IS_NO_FIT_MODE		"<!--WIZD_DELETE_IS_NO_FIT_MODE-->"
 #define		SKIN_KEYWORD_DEL_IS_NO_FIT_MODE_E	"<!--/WIZD_DELETE_IS_NO_FIT_MODE-->"
 
+// 次ページが存在しない場合 (HEAD/TAILのみ)
+#define		SKIN_KEYWORD_DEL_IS_CURRENT_PAGE		"<!--WIZD_DELETE_IS_CURRENT_PAGE-->"
+#define		SKIN_KEYWORD_DEL_IS_CURRENT_PAGE_E		"<!--/WIZD_DELETE_IS_CURRENT_PAGE-->"
+
+// 次ページが存在しない場合 (HEAD/TAILのみ)
+#define		SKIN_KEYWORD_DEL_IS_NOT_CURRENT_PAGE		"<!--WIZD_DELETE_IS_NOT_CURRENT_PAGE-->"
+#define		SKIN_KEYWORD_DEL_IS_NOT_CURRENT_PAGE_E		"<!--/WIZD_DELETE_IS_NOT_CURRENT_PAGE-->"
+
+// setup the 10 favorites tests
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES1		"<!--WIZD_DELETE_IS_NO_FAVORITES1-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES1_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES1-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES2		"<!--WIZD_DELETE_IS_NO_FAVORITES2-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES2_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES2-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES3		"<!--WIZD_DELETE_IS_NO_FAVORITES3-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES3_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES3-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES4		"<!--WIZD_DELETE_IS_NO_FAVORITES4-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES4_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES4-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES5		"<!--WIZD_DELETE_IS_NO_FAVORITES5-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES5_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES5-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES6		"<!--WIZD_DELETE_IS_NO_FAVORITES6-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES6_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES6-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES7		"<!--WIZD_DELETE_IS_NO_FAVORITES7-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES7_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES7-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES8		"<!--WIZD_DELETE_IS_NO_FAVORITES8-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES8_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES8-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES9		"<!--WIZD_DELETE_IS_NO_FAVORITES9-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES9_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES9-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES10		"<!--WIZD_DELETE_IS_NO_FAVORITES10-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_FAVORITES10_E		"<!--/WIZD_DELETE_IS_NO_FAVORITES10-->"
+
+// define 10 favorites variables
+#define		SKIN_KEYWORD_FAVORITES1		    "<!--WIZD_FAVORITES1-->"
+#define		SKIN_KEYWORD_FAVORITES2		    "<!--WIZD_FAVORITES2-->"
+#define		SKIN_KEYWORD_FAVORITES3		    "<!--WIZD_FAVORITES3-->"
+#define		SKIN_KEYWORD_FAVORITES4		    "<!--WIZD_FAVORITES4-->"
+#define		SKIN_KEYWORD_FAVORITES5		    "<!--WIZD_FAVORITES5-->"
+#define		SKIN_KEYWORD_FAVORITES6		    "<!--WIZD_FAVORITES6-->"
+#define		SKIN_KEYWORD_FAVORITES7		    "<!--WIZD_FAVORITES7-->"
+#define		SKIN_KEYWORD_FAVORITES8		    "<!--WIZD_FAVORITES8-->"
+#define		SKIN_KEYWORD_FAVORITES9		    "<!--WIZD_FAVORITES9-->"
+#define		SKIN_KEYWORD_FAVORITES10		    "<!--WIZD_FAVORITES10-->"
+
+// for html movie info files
+#define		SKIN_KEYWORD_DEL_IF_NO_HTML_LINK		"<!--WIZD_IF_NO_HTML_LINK-->"
+#define		SKIN_KEYWORD_DEL_IF_NO_HTML_LINK_E	"<!--/WIZD_IF_NO_HTML_LINK-->"
+#define		SKIN_KEYWORD_DEL_IF_HAVE_HTML_LINK		"<!--WIZD_IF_HAVE_HTML_LINK-->"
+#define		SKIN_KEYWORD_DEL_IF_HAVE_HTML_LINK_E	"<!--/WIZD_IF_HAVE_HTML_LINK-->"
+
+//
+#define		SKIN_KEYWORD_DEFAULT_TYPE		"<!--WIZD_DEFAULT_TYPE-->"
+#define		SKIN_KEYWORD_ALIAS_SEARCH		"<!--WIZD_ALIAS_SEARCH-->"
+#define		SKIN_KEYWORD_SEARCH_STR		    "<!--WIZD_SEARCH_STR-->"
+#define		SKIN_KEYWORD_DEFAULT_SEARCH_ALIAS		    "<!--WIZD_SEARCH_ALIAS-->"
 
 #endif
