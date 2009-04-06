@@ -28,6 +28,8 @@ static void print_help(void);
 static void daemon_init(void);
 static void set_user_id(unsigned char *user, unsigned char *group);
 
+static void setup_SIGINT(int pid);
+static void catch_SIGINT(int signo);
 
 static void setup_SIGCHLD(void);
 static void catch_SIGCHLD(int signo);
@@ -40,8 +42,11 @@ extern int child_count;
 int main(int argc, char *argv[])
 {
 	int i;
-	pid_t	pid;
-	char flag_daemon = FALSE;
+	pid_t	pid=0;
+	int	new_port = -1;
+	char flag_daemon = -1;
+	char vob_split = FALSE;
+	char *new_name = 0;
 
 	fprintf(stderr, "%s  start.\n", SERVER_NAME);
 
@@ -67,13 +72,25 @@ int main(int argc, char *argv[])
 		{
 			print_help();
 			exit( 0 );
-		}
-		if (strcmp(argv[i], "-d") 		== 0)
+		} else if (strcmp(argv[i], "-D") 		== 0)
+		{
+			flag_daemon = FALSE;
+		} else if (strcmp(argv[i], "-d") 		== 0)
 		{
 			flag_daemon = TRUE;
+		} else if (strcmp(argv[i], "-csplit") 		== 0)
+		{
+			vob_split = TRUE;
+		} else if (strcmp(argv[i], "-port") 		== 0)
+		{
+			i++;
+			new_port = atoi(argv[i]);
+		} else if (strcmp(argv[i], "-name") 		== 0)
+		{
+			i++;
+			new_name = argv[i];
 		}
 	}
-
 
 
 	// =============================================
@@ -86,11 +103,30 @@ int main(int argc, char *argv[])
 	}
 
 	// デーモンモードについては、コマンドラインパラメータを優先
-	if (flag_daemon)
+	if (flag_daemon == TRUE)
 	{
+		printf("set flag_daemon to true\n");
 		global_param.flag_daemon = TRUE;
+	} else if (flag_daemon == FALSE)
+	{
+		printf("set flag_daemon to false\n");
+		global_param.flag_daemon = FALSE;
 	}
 
+	if (vob_split == 1) {
+		printf("splitting chapter vobs\n");
+		global_param.flag_split_vob_chapters = TRUE;
+	}
+
+	if (new_port != -1) {
+		global_param.server_port = new_port;
+		printf("Using port %d\n", new_port);
+	}
+
+	if (new_name != 0) {
+		printf("Changed server name to %s\n", new_name);
+		strncpy(global_param.server_name,new_name,sizeof(global_param.server_name)-1); \
+	}
 
 	// ======================
 	// = SetUID 実行
@@ -150,6 +186,8 @@ int main(int argc, char *argv[])
 			// 以下子プロセス部
 			server_detect();
 			exit ( 0 );
+		} else {
+			setup_SIGINT( pid );
 		}
 	}
 
@@ -158,6 +196,11 @@ int main(int argc, char *argv[])
 	// HTTP Server仕事開始
 	// =======================
 	server_listen();
+
+	if(pid != 0) {
+		// Terminate the SSDP server
+		kill(pid, SIGINT);
+	}
 
 	printf("%s  end.\n", SERVER_NAME);
 
@@ -179,6 +222,11 @@ static void print_help(void)
 
 	printf("Options:\n");
 	printf(" -h, --help\tprint this message.\n");
+	printf(" -d\tset flag_daemon to true.\n");
+	printf(" -D\tset flag_daemon to false.\n");
+	printf(" -csplit\tset split_vob_chapters to true\n");
+	printf(" -port number\tset server_port to number\n");
+	printf(" -name NAME\tset server_name to NAME\n");
 
 	printf("\n");
 }
@@ -313,5 +361,38 @@ static void catch_SIGCHLD(int signo)
 	return;
 }
 
+
+// **************************************************************************
+// Set up a handler for the SIGINT signal
+// **************************************************************************
+static int pid_ssdp;
+
+static void setup_SIGINT(int pid)
+{
+	struct sigaction act;
+	memset(&act, 0, sizeof(act));
+
+	pid_ssdp = pid;
+	// Configure SIGINT handler
+	act.sa_handler = catch_SIGINT;
+	act.sa_flags = SA_RESETHAND;
+	sigemptyset(&act.sa_mask);
+	sigaction(SIGINT, &act, NULL);
+
+	return;
+}
+
+
+// **************************************************************************
+// SIGINT handler kills off the SSDP process too
+// **************************************************************************
+static void catch_SIGINT(int signo)
+{
+	debug_log_output("catch SIGINT!!(signo=%d)\n", signo);
+	kill(pid_ssdp, SIGINT);
+	debug_log_output("catch SIGINT end.\n");
+
+	exit(1);
+}
 
 

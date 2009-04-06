@@ -51,6 +51,8 @@ MIME_LIST_T	mime_list[] = {
 	{"video/msvideo"	, 	"avi"		,	TYPE_STREAM		,	TYPE_SVI		},
 	{"video/mpeg"		, 	"vob"		,	TYPE_STREAM		,	TYPE_MOVIE		},
 	{"video/mpeg"		, 	"vro"		,	TYPE_STREAM		,	TYPE_MOVIE		},	/* add for DVD-RAM */
+	{"video/mpeg"		, 	"ts"		,	TYPE_STREAM		,	TYPE_MOVIE		},	/* add for DVD-RAM */
+	{"video/mpeg"		, 	"tp"		,	TYPE_STREAM		,	TYPE_MOVIE		},	/* add for DVD-RAM */
 	{"video/quicktime"	,	"mov"		,	TYPE_STREAM		,	TYPE_MOVIE		},
 	{"video/x-ms-wmv"	,	"wmv"		,	TYPE_STREAM		,	TYPE_MOVIE		},
 	{"video/x-ms-wmx"	,	"asf"		,	TYPE_STREAM		,	TYPE_MOVIE		},
@@ -62,9 +64,13 @@ MIME_LIST_T	mime_list[] = {
 	{"audio/ac3"		, 	"ac3"		,	TYPE_STREAM		,	TYPE_MUSIC		},
 	{"audio/x-m4a"		, 	"m4a"		,	TYPE_STREAM		,	TYPE_MUSIC		},
 	{"text/plain"		,	"plw"		,	TYPE_STREAM		,	TYPE_PLAYLIST	}, // Play List for wizd.
+	{"text/plain"		,	"pls"		,	TYPE_STREAM		,	TYPE_PLAYLIST	}, // Play List for wizd.
 	{"text/plain"		,	"upl"		,	TYPE_STREAM		,	TYPE_PLAYLIST	}, // Uzu Play List拡張子でもOK. ファイル自身の互換は無し。
 	{"text/plain"		,	"m3u"		,	TYPE_STREAM		,	TYPE_MUSICLIST	}, // m3u でもOK?
 	{"text/plain"		,	"tsv"		,	TYPE_STREAM		,	TYPE_PSEUDO_DIR	}, // tsv = 仮想ディレクトリ
+	{"text/plain"		,	"url"		,	TYPE_NO_STREAM		,	TYPE_URL		}, // URL shortcut from Internet Explorer
+	{"text/plain"		,	"chapter"		,	TYPE_NO_STREAM		,	TYPE_CHAPTER		},
+	{"video/divx5"		, 	"divx"		,	TYPE_STREAM		,	TYPE_MOVIE		},
 	{NULL, NULL, (-1), (-1) }
 };
 
@@ -84,6 +90,8 @@ EXTENSION_CONVERT_LIST_T extension_convert_list[] = {
 	{"sv3"			,	"mpg"			},
 	{"hnl"			,	"mpg"			},
 	{"nuv"			,	"mpg"			},	/* add for MythTV */
+	{"tp"			,	"ts"			},
+	{"divx"			,	"avi"			},
 	{ NULL, NULL }
 };
 
@@ -157,6 +165,9 @@ void global_param_init(void)
 
 	// Document Root
 	strncpy(global_param.document_root, DEFAULT_DOCUMENT_ROOT, sizeof(global_param.document_root));
+
+	// Aliases
+	global_param.num_aliases = 0;
 
 	// DebugLog
 	global_param.flag_debug_log_output = DEFAULT_FLAG_DEBUG_LOG_OUTPUT;
@@ -237,10 +248,28 @@ void global_param_init(void)
 	// mp3tag を読むかどうか
 	global_param.flag_read_mp3_tag = TRUE;
 
+	global_param.buffer_size = DEFAULT_BUFFER_SIZE;
+	global_param.stream_chunk_size = DEFAULT_STREAM_CHUNK_SIZE;
+	global_param.socket_chunk_size = DEFAULT_SOCKET_CHUNK_SIZE;
+	global_param.stream_rcvbuf = DEFAULT_STREAM_RCVBUF;
+	global_param.stream_sndbuf = DEFAULT_STREAM_SNDBUF;
+
 	// v0.12f3
 	global_param.flag_show_first_vob_only = DEFAULT_FLAG_SHOW_FIRST_VOB_ONLY;
+	global_param.flag_split_vob_chapters = DEFAULT_FLAG_SPLIT_VOB_CHAPTERS;
+	global_param.flag_hide_short_titles = DEFAULT_FLAG_HIDE_SHORT_TITLES;
+	global_param.flag_show_audio_info = DEFAULT_FLAG_SHOW_AUDIO_INFO;
 	// v0.12f4
 	global_param.flag_specific_dir_sort_type_fix = DEFAULT_FLAG_SPECIFIC_DIR_SORT_TYPE_FIX;
+
+	global_param.flag_allplay_includes_subdir = DEFAULT_FLAG_ALLPLAY_INCLUDES_SUBDIR;
+	global_param.max_play_list_items = DEFAULT_MAX_PLAY_LIST_ITEMS;
+	global_param.bookmark_threshold = DEFAULT_BOOKMARK_THRESHOLD;
+	global_param.flag_allow_delete = DEFAULT_FLAG_ALLOW_DELETE;
+
+	global_param.flag_slide_show_labels = DEFAULT_FLAG_SLIDE_SHOW_LABELS;
+	global_param.slide_show_seconds = DEFAULT_SLIDE_SHOW_SECONDS;
+	global_param.slide_show_transition = DEFAULT_SLIDE_SHOW_TRANSITION;
 
 	return;
 }
@@ -371,12 +400,52 @@ void config_file_read(void)
 		SETCONF_NUM("server_port", server_port);
 		SETCONF_DIR("document_root", document_root);
 
+		// aliases
+		i=-1;
+		if ( strcasecmp("alias", key) == 0 )
+			i = TYPE_UNKNOWN;
+		else if ( strcasecmp("musicalias", key) == 0 )
+			i = TYPE_MUSIC;
+		else if ( strcasecmp("moviealias", key) == 0 )
+			i = TYPE_MOVIE;
+		else if ( strcasecmp("photoalias", key) == 0 )
+			i = TYPE_JPEG;
+
+		if ( i != -1 )
+		{
+			if (global_param.num_aliases < WIZD_MAX_ALIASES )
+			{
+				// valueを' 'で分割
+				sentence_split(value, ' ', global_param.alias_name[global_param.num_aliases], global_param.alias_path[global_param.num_aliases]);
+				global_param.alias_name[global_param.num_aliases][WIZD_MAX_ALIAS_LENGTH-1]=0;
+				global_param.alias_path[global_param.num_aliases][WIZD_FILENAME_MAX-1]=0;
+				global_param.alias_default_file_type[global_param.num_aliases] = i;
+				printf("[%d] alias='%s', path='%s', default_file_type=%d\n", global_param.num_aliases,
+					global_param.alias_name[global_param.num_aliases],
+					global_param.alias_path[global_param.num_aliases],
+					global_param.alias_default_file_type[global_param.num_aliases]);
+
+				global_param.num_aliases++;
+			}
+		}
+
+
 		// client_language_code
 		if (strcasecmp("client_language_code", key) == 0) {
 			if (strcasecmp(value ,"sjis") == 0)
 				global_param.client_language_code = CODE_SJIS;
 			else if (strcasecmp(value ,"euc") == 0)
 				global_param.client_language_code = CODE_EUC;
+			else if (!strcasecmp(value ,"utf8") || !strcasecmp(value ,"utf-8"))
+				global_param.client_language_code = CODE_UTF8;
+			else if (!strcasecmp(value ,"utf16") || !strcasecmp(value ,"utf-16"))
+				global_param.client_language_code = CODE_UTF16;
+			else if (!strcasecmp(value ,"windows"))
+				global_param.client_language_code = CODE_WINDOWS;
+			else if (!strcasecmp(value ,"unix"))
+				global_param.client_language_code = CODE_UNIX;
+			else if (!strcasecmp(value ,"disabled"))
+				global_param.client_language_code = CODE_DISABLED;
 		}
 
 		// server_language_code
@@ -391,6 +460,8 @@ void config_file_read(void)
 				global_param.server_language_code = CODE_UTF8;
 			else if (!strcasecmp(value ,"utf16") || !strcasecmp(value ,"utf-16"))
 				global_param.server_language_code = CODE_UTF16;
+			else if (!strcasecmp(value ,"disabled"))
+				global_param.server_language_code = CODE_DISABLED;
 		}
 
 
@@ -415,6 +486,8 @@ void config_file_read(void)
 				global_param.sort_rule = SORT_SIZE_UP;
 			else if (strcasecmp(value ,"size_down") == 0 )
 				global_param.sort_rule = SORT_SIZE_DOWN;
+			else if (strcasecmp(value ,"duration") == 0 )
+				global_param.sort_rule = SORT_DURATION;
 		}
 
 		SETCONF_NUM("page_line_max", page_line_max);
@@ -427,8 +500,15 @@ void config_file_read(void)
 		SETCONF_FLAG("flag_filename_cut_parenthesis_area", flag_filename_cut_parenthesis_area);
 		SETCONF_FLAG("flag_filename_cut_same_directory_name", flag_filename_cut_same_directory_name);
 		SETCONF_FLAG("flag_allplay_filelist_adjust", flag_allplay_filelist_adjust);
+		SETCONF_NUM("bookmark_threshold", bookmark_threshold);
+		SETCONF_FLAG("flag_allow_delete", flag_allow_delete);
 
 		SETCONF_NUM("buffer_size", buffer_size);
+		SETCONF_NUM("stream_chunk_size", stream_chunk_size);
+		SETCONF_NUM("socket_chunk_size", socket_chunk_size);
+		SETCONF_NUM("stream_rcvbuf", stream_rcvbuf);
+		SETCONF_NUM("stream_sndbuf", stream_sndbuf);
+
 		SETCONF_FLAG("flag_buffer_send_asap", flag_buffer_send_asap);
 		SETCONF_STR("user_agent_proxy_override", user_agent_proxy_override);
 		SETCONF_STR("user_agent_pc", user_agent_pc);
@@ -521,8 +601,17 @@ void config_file_read(void)
 		}
 
 
+		SETCONF_FLAG("flag_slide_show_labels", flag_slide_show_labels);
+		SETCONF_NUM("slide_show_seconds", slide_show_seconds);
+		SETCONF_NUM("slide_show_transition", slide_show_transition);
+
 		SETCONF_FLAG("flag_filename_adjustment_for_windows", flag_filename_adjustment_for_windows);
 		SETCONF_FLAG("flag_show_first_vob_only", flag_show_first_vob_only);
+		SETCONF_FLAG("flag_split_vob_chapters", flag_split_vob_chapters);
+		SETCONF_FLAG("flag_hide_short_titles", flag_hide_short_titles);
+		SETCONF_FLAG("flag_show_audio_info", flag_show_audio_info);
+		SETCONF_FLAG("flag_allplay_includes_subdir", flag_allplay_includes_subdir);
+		SETCONF_NUM("max_play_list_items", max_play_list_items);
 		SETCONF_FLAG("flag_specific_dir_sort_type_fix", flag_specific_dir_sort_type_fix);
 		SETCONF_FLAG("flag_resize_jpeg", flag_resize_jpeg);
 		SETCONF_NUM("target_jpeg_width", target_jpeg_width);
@@ -697,7 +786,7 @@ void config_sanity_check()
 
 	if (global_param.document_root[0] != '/') {
 		if (getcwd(cwd, sizeof(cwd)) == NULL) {
-			debug_log_output("document_root: getcwd(): %s", strerror(errno));
+			fprintf(stderr, "document_root: getcwd(): %s", strerror(errno));
 			exit(-1);
 		}
 		snprintf(buf, sizeof(buf), "%s/%s", cwd, global_param.document_root);
@@ -711,11 +800,11 @@ void config_sanity_check()
 			, sizeof(global_param.document_root));
 	}
 	if (stat(global_param.document_root, &sb) != 0) {
-		debug_log_output("document_root: %s: %s", global_param.document_root, strerror(errno));
+		fprintf(stderr, "document_root: %s: %s", global_param.document_root, strerror(errno));
 		exit(-1);
 	}
 	if (!S_ISDIR(sb.st_mode)) {
-		debug_log_output("document_root: %s: is not a directory.", global_param.document_root);
+		fprintf(stderr, "document_root: %s: is not a directory.", global_param.document_root);
 		exit(-1);
 	}
 	debug_log_output("document_root: '%s'", global_param.document_root);

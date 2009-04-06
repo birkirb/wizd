@@ -716,11 +716,16 @@ int uri_encode(unsigned char *dst,  unsigned int dst_len, const unsigned char *s
 
 
 	// 引数チェック
-	if((dst == NULL) || (dst_len < 1) || (src == NULL) || (src_len < 1))
+	if((dst == NULL) || (dst_len < 1))
 	{
 		return 0;
 	}
 
+	if((src == NULL) || (src_len < 1)) 
+	{
+		*dst = 0;
+		return 0;
+	}
 	cnt = 0;
 	for (idx_src = idx_dst = 0 ; (idx_src < src_len) && (idx_dst < dst_len) && (src[idx_src] != '\0'); idx_src++)
 	{
@@ -935,6 +940,24 @@ void conv_time_to_time_string(unsigned char *sentence, time_t conv_time)
 }
 
 
+void conv_duration_to_string(unsigned char *sentence, dvd_duration *dvdtime)
+{
+	if (dvdtime == NULL) {
+		sprintf(sentence, "--:--:--");
+		return ;
+	}
+	if (dvdtime->hour == -1) {
+		sentence[0]=0;
+		return;
+	}
+	sprintf(sentence, "%d:%02d:%02d",
+			dvdtime->hour,
+			dvdtime->minute,
+			dvdtime->second);
+
+	return;
+}
+
 
 /********************************************************************************/
 // 100000000 → "100.00 MB" への変換を行う。
@@ -947,7 +970,10 @@ void conv_num_to_unit_string(unsigned char *sentence, u_int64_t file_size)
 	u_int64_t	little_size;
 
 
-	if ( file_size < 1024 )
+	if ((int) file_size == -1) {
+		sentence[0] = 0;
+		return;
+	} else if ( file_size < 1024 )
 	{
 		sprintf(sentence, "%lld B", file_size );
 	}

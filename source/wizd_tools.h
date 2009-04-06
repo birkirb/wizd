@@ -20,6 +20,12 @@
 #define		OUTPUT_LOG_ROTATE_SIZE		(1024*1024*1900)	/* 1.9Gbyte */
 #define		OUTPUT_LOG_ROTATE_MAX		5					/* 何回のrotateを許すか */
 
+typedef struct {
+	int	hour;
+	int	minute;
+	int	second;
+} dvd_duration;
+
 // uriエンコード／デコード
 extern int 		uri_encode(unsigned char *dst,  unsigned int dst_len, const unsigned char *src, int src_len);
 extern int 		uri_decode(unsigned char *dst, unsigned int dst_len, const unsigned char *src, unsigned int src_len);
@@ -37,6 +43,7 @@ extern void 	replase_character(unsigned char *sentence, int sentence_buf_size, c
 extern void 	replase_character_first(unsigned char *sentence, int sentence_buf_size, const unsigned char *key, const unsigned char *rep);
 extern void 	make_datetime_string(unsigned char *sentence);
 extern void 	conv_time_to_string(unsigned char *sentence, time_t conv_time);
+extern void		conv_duration_to_string(unsigned char *sentence, dvd_duration *dvdtime);
 extern void 	conv_time_to_date_string(unsigned char *sentence, time_t conv_time);
 extern void 	conv_time_to_time_string(unsigned char *sentence, time_t conv_time);
 extern void 	conv_num_to_unit_string(unsigned char *sentence, u_int64_t file_size);

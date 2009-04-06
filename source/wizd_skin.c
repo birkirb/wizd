@@ -27,7 +27,7 @@ SKIN_T *skin_open(char *filename)
 		return NULL;
 	}
 
-	snprintf(read_filename, sizeof(read_filename), "%s/%s", skin_path, filename);
+	snprintf(read_filename, sizeof(read_filename), "%s/%s/%s", global_param.skin_root, global_param.skin_name, filename);
 	skin->buffer = skin_file_read(read_filename, &skin->buffer_size);
 	if (skin->buffer == NULL) {
 		debug_log_output("open_skin: skin_file_read() error");
@@ -115,7 +115,7 @@ static unsigned char *skin_file_read(unsigned char *read_filename, unsigned long
 
 	// ファイルサイズチェック
 	result = stat(read_filename, &file_stat);
-	debug_log_output("skin: head stat()=%d, st_size=%lld", result, file_stat.st_size );
+	debug_log_output("skin: head stat(%s)=%d, st_size=%lld", read_filename, result, file_stat.st_size );
 	if ( result != 0 )
 	{
 		debug_log_output("stat(%s) error.", read_filename);
@@ -146,7 +146,7 @@ static unsigned char *skin_file_read(unsigned char *read_filename, unsigned long
 	fd = open(read_filename, O_RDONLY );
 	if ( fd < 0 )
 	{
-		debug_log_output("open() error.");
+		debug_log_output("open(%s) error.",read_filename);
 		free(read_buf);
 		free(read_work_buf);
 		return NULL;
@@ -222,6 +222,18 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 	} else {
 		DELETE(IS_STREAM_FILES);
 	}
+	if ( skin_rep_data_global_p->music_files == 0 ) {
+		DELETE(IS_NO_MUSIC_FILES);
+		DELETE(IS_NO_MUSIC_FILES2);
+	} else {
+		DELETE(IS_MUSIC_FILES);
+	}
+	if ( skin_rep_data_global_p->photo_files == 0 ) {
+		DELETE(IS_NO_PHOTO_FILES);
+		DELETE(IS_NO_PHOTO_FILES2);
+	} else {
+		DELETE(IS_PHOTO_FILES);
+	}
 
 	// クライアントがPCのときとそうじゃないとき
 	if ( skin_rep_data_global_p->flag_pc == 1 ) {
@@ -256,11 +268,22 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 	REPLACE(CURRENT_DATE, current_date);
 	REPLACE(CURRENT_TIME, current_time);
 
+	if (global_param.flag_show_audio_info != 0)
+		REPLACE(DVD_OPTIONS, "showaudio");
+	else if (global_param.flag_split_vob_chapters == 1)
+		REPLACE(DVD_OPTIONS, "splitchapters");
+	else if (global_param.flag_split_vob_chapters == 2)
+		REPLACE(DVD_OPTIONS, "notitlesplit");
+	else
+		REPLACE(DVD_OPTIONS, "none");
+
 	REPLACE(CLIENT_CHARSET, global_param.client_language_code == CODE_SJIS ? "Shift_JIS" : "euc-jp");
 
+	REPLACE_G(SERVER_ADDRESS, recv_host);
 	REPLACE_G(CURRENT_PATH, current_path_name);
 	REPLACE_G(CURRENT_DIR_NAME, current_directory_name);
 	REPLACE_G(CURRENT_PATH_LINK, current_directory_link);
+	REPLACE_G(CURRENT_PATH_FULL_LINK, current_directory_absolute);
 	REPLACE_G(CURRENT_PATH_LINK_NO_PARAM, current_directory_link_no_param);
 	REPLACE_G(PARLENT_DIR_LINK, parent_directory_link );
 	REPLACE_G(CURRENT_PAGE, now_page_str);
@@ -272,6 +295,9 @@ void replase_skin_grobal_data(unsigned char *menu_work_p, int menu_work_buf_size
 	REPLACE_G(END_FILE_NUM, end_file_num_str);
 	REPLACE_G(ONLOADSET_FOCUS, focus);
 	REPLACE_G(SECRET_DIR_LINK, secret_dir_link_html);
+
+	REPLACE_G(DEFAULT_PHOTOLIST, default_photolist);
+	REPLACE_G(DEFAULT_MUSICLIST, default_musiclist);
 
 #undef REPLACE
 #undef REPLACE_G
@@ -325,9 +351,12 @@ void replase_skin_line_data(unsigned char *menu_work_p, int menu_work_buf_size, 
 	REPLACE_L(FILE_EXT, file_extension);
 
 	REPLACE_L(FILE_LINK, file_uri_link);
+	REPLACE_L(CHAPTER_LINK, chapter_link);
+	REPLACE_L(CHAPTER_STR, chapter_str);
 	REPLACE_L(TIMESTAMP, file_timestamp);
 	REPLACE_L(FILE_DATE, file_timestamp_date);
 	REPLACE_L(FILE_TIME, file_timestamp_time);
+	REPLACE_L(FILE_DURATION, file_duration);
 	REPLACE_L(TVID, tvid_string);
 
 	REPLACE_L(FILE_VOD, vod_string);

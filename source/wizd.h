@@ -20,7 +20,7 @@
 // define いろいろ
 // ======================
 
-#define		SERVER_NAME		"wizd 0.12h RC3"
+#define		SERVER_NAME		"wizd 0.12h pvb.12"
 #define		SERVER_DETAIL	"MediaWiz Server Daemon."
 
 
@@ -32,6 +32,9 @@
 #endif
 
 
+
+#define		DEFAULT_MUSICLIST	"default_music.m3u"
+#define		DEFAULT_PHOTOLIST	"default_photo.pls"
 
 
 
@@ -80,6 +83,17 @@ char *config_file[] = {
 #define	DEFAULT_MENU_FILENAME_LENGTH_MAX		FILENAME_MAX
 #define	DEFAULT_MENU_SVI_INFO_LENGTH_MAX		FILENAME_MAX
 
+// Maximum number of aliases allowed in wizd.conf
+#define WIZD_MAX_ALIASES 10
+// Maximum length of the alias name
+#define WIZD_MAX_ALIAS_LENGTH 50
+
+#define DEFAULT_BUFFER_SIZE  16
+#define DEFAULT_STREAM_CHUNK_SIZE 65536
+#define DEFAULT_SOCKET_CHUNK_SIZE 8192
+#define DEFAULT_STREAM_RCVBUF 0
+#define DEFAULT_STREAM_SNDBUF 0
+
 #define WIZD_FILENAME_MAX		2048
 
 #define	DEFAULT_FLAG_UNKNOWN_EXTENSION_FLAG_HIDE	TRUE
@@ -90,6 +104,10 @@ char *config_file[] = {
 #define	DEFAULT_FLAG_FILENAME_CUT_SAME_DIRECTORY_NAME	FALSE
 
 #define	DEFAULT_FLAG_ALLPLAY_FILELIST_ADJUST			FALSE
+#define DEFAULT_FLAG_ALLPLAY_INCLUDES_SUBDIR		TRUE
+#define DEFAULT_MAX_PLAY_LIST_ITEMS			500
+#define DEFAULT_BOOKMARK_THRESHOLD			10000000
+#define DEFAULT_FLAG_ALLOW_DELETE			FALSE
 
 #define	DEFAULT_FLAG_FILENAME_ADJUSTMENT_FOR_WINDOWS	FALSE
 
@@ -101,8 +119,16 @@ char *config_file[] = {
 #define	DEFAULT_USER_AGENT_PC		""
 
 #define	DEFAULT_FLAG_SHOW_FIRST_VOB_ONLY	TRUE
+#define DEFAULT_FLAG_SPLIT_VOB_CHAPTERS		FALSE
+#define DEFAULT_FLAG_HIDE_SHORT_TITLES		TRUE
+#define DEFAULT_FLAG_SHOW_AUDIO_INFO		FALSE
 
 #define	DEFAULT_FLAG_SPECIFIC_DIR_SORT_TYPE_FIX TRUE
+
+// Slide show configuration
+#define DEFAULT_FLAG_SLIDE_SHOW_LABELS		FALSE
+#define DEFAULT_SLIDE_SHOW_SECONDS		10
+#define DEFAULT_SLIDE_SHOW_TRANSITION		0
 
 #define	SORT_NONE				(0)
 #define	SORT_NAME_UP			(1)
@@ -112,6 +138,7 @@ char *config_file[] = {
 #define	SORT_SIZE_UP			(5)
 #define	SORT_SIZE_DOWN			(6)
 #define	SORT_SHUFFLE			(7)
+#define	SORT_DURATION			(8)
 
 #define	DEFAULT_SORT_RULE		SORT_NONE
 #define	DEFAULT_PAGE_LINE_MAX	(14)
@@ -126,7 +153,10 @@ char *config_file[] = {
 #define CODE_EUC		(0x02)
 #define CODE_UTF8		(0x03)
 #define CODE_UTF16		(0x04)
+#define CODE_UNIX               (0x05)
+#define CODE_WINDOWS            (0x06)
 #define CODE_HEX		(0x10)
+#define CODE_DISABLED		(0x20)
 
 #define	DEFAULT_CLIENT_LANGUAGE_CODE	CODE_SJIS
 #define	DEFAULT_SERVER_LANGUAGE_CODE	CODE_AUTO
@@ -175,9 +205,11 @@ char *config_file[] = {
 #define		TYPE_PSEUDO_DIR			(8)
 #define		TYPE_MUSICLIST			(9)
 #define		TYPE_JPEG				(10)
-
+#define		TYPE_URL				(11)
+#define		TYPE_DELETE				(12)
+#define		TYPE_CHAPTER			(13)
 // ↑の個数
-#define		MAX_TYPES				(11)
+#define		MAX_TYPES				(14)
 
 
 // SVI_INFO
@@ -248,6 +280,7 @@ typedef struct {
 
 	unsigned char 	option[32];		// ?option= の内容
 	unsigned char	sort[32];		// ?sort= の内容
+	unsigned char	dvdopt[32];		// ?dvdopt= の内容
 
 	unsigned char 	focus[32];		// ?focus= の内容
 
@@ -257,6 +290,9 @@ typedef struct {
 	long 	recv_content_length;		// 受信したContent-Length. (わざとlong)
 
 	int				flag_pc;		// クライアントが PC かどうか. 非0 = PC
+	int				default_file_type;	// Default file type for allplay list
+
+	int				hi_res;			// true when using hidef menus
 
 	unsigned char 	passwd[64];		// 受信したURI(decoded)
 } HTTP_RECV_INFO;
@@ -305,7 +341,11 @@ typedef struct {
 	// Document Root
 	unsigned char 	document_root[WIZD_FILENAME_MAX];
 
-
+	// Aliases
+	int		num_aliases;
+	unsigned char	alias_name[WIZD_MAX_ALIASES][WIZD_MAX_ALIAS_LENGTH];
+	unsigned char	alias_path[WIZD_MAX_ALIASES][WIZD_FILENAME_MAX];
+	int				alias_default_file_type[WIZD_MAX_ALIASES];
 
 	// ----------------------
 	// 表示系
@@ -354,6 +394,24 @@ typedef struct {
 	// Allplayでの文字化け防止(ファイル名の全半角変換)するかフラグ
 	char	flag_allplay_filelist_adjust;
 
+	// Allplay recurses through all subdirectories to create the list
+	char	flag_allplay_includes_subdir;
+
+	// Maximum number of entries to include in an allplay list
+	int	max_play_list_items;
+
+	// Threshold for reading before storing a bookmark
+	// set to 0 to disable bookmarks
+	int	bookmark_threshold;
+
+	// Flag to enable the ability to delete files from the client
+	char	flag_allow_delete;
+
+	// Slide show configuration
+	char	flag_slide_show_labels;
+	int	slide_show_seconds;
+	int	slide_show_transition;
+
 	// Windows用にプレイリスト内のファイル名を調整するかフラグ
 	char	flag_filename_adjustment_for_windows;
 
@@ -364,8 +422,16 @@ typedef struct {
 	// 拡張系
 	// ----------------------
 
+	// Socket buffering options for streaming data
+	int	stream_sndbuf;
+	int	stream_rcvbuf;
+
 	// キャッシュバッファのサイズ(個数)
 	size_t	buffer_size;
+
+	// Size of each buffer, in bytes
+	int	stream_chunk_size;
+	int	socket_chunk_size;
 
 	// キャッシュバッファをすぐ送るかフラグ
 	char	flag_buffer_send_asap;
@@ -395,6 +461,9 @@ typedef struct {
 
 	// 0.12f3 先頭vobのみ
 	char	flag_show_first_vob_only;
+	char	flag_split_vob_chapters;
+	char	flag_hide_short_titles;
+	char	flag_show_audio_info;
 
 	// 0.12f4 特定のディレクトリのソート方法を固定する。
 	char	flag_specific_dir_sort_type_fix;
@@ -515,7 +584,7 @@ extern void http_send_ok_header(int accept_socket, unsigned long long content_le
 
 
 // バッファリングしながら in_fd から out_fd へ データを転送
-extern int copy_descriptors(int in_fd, int out_fd, off_t content_length, JOINT_FILE_INFO_T *joint_file_info_p);
+extern off_t copy_descriptors(int in_fd, int out_fd, off_t content_length, JOINT_FILE_INFO_T *joint_file_info_p);
 
 
 // SVIファイル解析＆返信

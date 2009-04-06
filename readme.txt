@@ -1,303 +1,62 @@
-******************************************************************************
- wizd -- MediaWiz Server Daemon for Linux.                           code=EUC
-                         http://www.geocities.co.jp/SiliconValley-SanJose/3271/
+Wizd is a server application for use with the I-O Data LinkPlayer 2
+and similar devices such as the Buffalo LinkStation and the MediaWiz.
+It works as a replacement for the Link Server software supplied by 
+I-O Data, but can be installed and run along side that server software
+(and the Advanced Server software) if you desire.
 
-                                            $Revision: 1.1.1.1 $
-                                            $Date: 2004/01/06 18:00:33 $
-******************************************************************************
+To install wizd on your computer:
 
+1) Edit the "wizd.conf" file with a text editor (such as Notepad)
+   In particular you will want to change the "alias" settings to
+   point to your media files.  Save the changes when you are done.
 
-■■ はじめに ■■
+2) Double-click the wizd.exe program.  It should pop up a console
+   window with your configuration information.
 
-wizdは、Linux上で動作するMediaWiz用サーバソフトです。
-このソフトウェアについて、(株)バーテックス リンク社に問い合わせないでください。
+3) The "Wizd" server should now appear on your LinkPlayer.  Select
+   it to browse and play your media files.
 
-すべて、自己責任でご使用ください。
-このソフトウェアを使用し、いかなる損害をうけたとしても、一切の保証はいたしません。
+Tips:
 
-このパッケージ内容物について、複写、移植、改変、転載、再配布、すべて許諾します。
-※ 一部、外部制作のモジュールが含まれてます。その部分は、各モジュール毎の指示に従ってください。
+You can test out the server using Internet Explorer by accessing
+the page http://localhost:8004
 
+Beginning a line with "#" in the wizd.conf file will disable that line
+and the setting will revert to its default.  Removing the "#" will
+enable a previously disabled line.
 
-■■ 謝辞 ■■
+Any time you make changes to the wizd.conf file you will need to stop
+and restart the wizd.exe program for the changes to take effect.
 
-wizdを作成するにあたり、「Uzu」の動作を参考にさせて頂いております。
-http://www.geocities.co.jp/SiliconValley-Cupertino/2647/
-作者様に感謝致します。
+If the window disappears immediately, or things don't appear to be
+working correctly, then edit the "wizd.conf" file, and set the
+flag_debug_log_output setting to "true".
+Then run wizd.exe again, and check the wizd_debug.log file for errors.
 
+If you want to change your configuration, press Ctrl+C in the console
+window to close the program, then modify wizd.conf and then restart
+wizd.exe
 
-日本語コード変換に、libnkfを使用させて頂いております。
-http://www.mr.hum.titech.ac.jp/~morimoto/libnkf/
-作者様に感謝致します。
-(いつのまにやら、ページ消滅してるし……)
+For DVD navigation by chapters, the .vob files must be in a VIDEO_TS
+subfolder.
 
+When resuming from a bookmark, press the "left" arrow on your remote
+to "go to 0%" and it will start playback from the beginning of the
+video.
 
-にちゃんねるDTV板 MediaWizスレ住人の方々にも感謝します。
-ネタ提供、レポート等、今後ともヨロシク。
-私の情熱が続くか否かは、あなたのカキコに依存しますヽ(´ー｀)ノ
+Once things are working well, edit the wizd.conf file, and put a comment
+mark "#" at the beginning of the "flag_daemon false" line, or set this
+parameter to "true".  Then restart the wizd.exe program, and it will 
+run as a hidden application with no console window.  Once you make this
+change you will have to use Task Manager to stop the program.
 
+Features of this version:
 
-スキン『basicblue』を勝手に同梱しました。作者『237』氏に感謝します。
-デザインセンスある人が作るとココまで違うとは(*´Д`)
+1) Saves bookmarks for MPEG video files, so you resume playback where
+   it was stopped
+2) DVD information is displayed by title set, instead of by VOB file
+3) DVD playback allows skipping forward by chapter
+4) Delete mode allows deleting files from the server (disabled by default)
+5) Internet Explorer .url files recognized, and displayed as links
+6) Playlists are generated recursively using current folder and all subfolders
 
-
-■■ 動作環境 ■■
-
-IA32のVineLinux 2.1上で開発、検証しています。
-RedHat系ならば、ほぼ動作するようです。
-他のディストリビューションで動作するかは未確認です。
-
-標準的なUNIXアプリケーションとして作成していますので、
-他のUNIX系OSへの移植も難しくないと思います。
-
-
-
-■■ パッケージ内容 ■■
-
-wizd            : サーバソフトウェア本体(IA32 VineLinux2.1 版バイナリ)
-wizd.conf       : 設定ファイル
-makefile        : 再コンパイルのためのmakefile
-readme.txt      : このテキスト
-source/         : ソースファイル置き場。いやがらないで読みましょう。
-skin/           : スキンデータ置き場
-skin/default    : デフォルトスキン
-skin/sample     : サンプルスキン
-skin/basicblue  : スキン『basicbule』
-InternetRadio.html   : インターネットラジオ情報
-playlist_sample.plw  : wizd playlistファイル サンプル。
-
-
-
-■■ 使用方法 ■■
-
-
-■ 実行準備
-
-最低限、wizd.conf の
----------------------
-document_root           /               # 動画ファイル置き場
----------------------
-を、適切に設定してください。
-データが置かれているディレクトリをフルパスで指定します。
-document_rootの外にあるデータを、使いたい場合には、document_rootに
-シンボリックリンクを作成してご使用ください。
-
-
-
-スキンを使用する場合には、最低限以下の３項目を適切に設定してください。
-init起動する場合には、skin_rootはフルパスで指定しないと不具合が出ます。
-埋め込みスキン（flag_use_skin false)は、まだ未対応です。
--------
-# スキン使用するかフラグ
-flag_use_skin           true
-
-# スキンデータ置き場
-skin_root               ./skin
-
-# スキン名 (skin_rootにあるディレクトリ名)
-skin_name               default
--------
-
-
-
-■ 実行方法
-
-$ ./wizd
-
-でwizdが起動します。
-
-init起動させる場合には、wizd.conf を、/etc/wizd.conf にコピーしてから、
-rcに追加してください。
-
-
-■ 停止方法
-
-$ killall wizd
-
-で停止します。もしかしたら、勝手に止まってるかもしれませんが。
-
-
-■ 再コンパイル方法
-
-パッケージをを展開したディレクトリで、
-
-$ make clean
-$ make 
-
-で再コンパイルされます。エラーが出るようならば、makefileを確認してみてください。
-
-
-UTF-8対応版が必要ない場合には、
-
-$ make clean
-$ make noutf8
-
-で、UTF-8変換テーブルがlinkされていない、小さな実行ファイルが出来ます。
-このバージョンで、UTF-8系のオプションを使用した場合の動作は不明です。
-
-
-■■ ＦＡＱ ■■
-
- http://www.geocities.co.jp/SiliconValley-SanJose/3271/ 
-
-にFAQを公開しています。(かなり不親切ですが)
-
-
-
-■■ wizdのライセンスについて ■■
-
-ややこしい事は言いません。
-複写、移植、改変、転載、再配布、すべて許諾します。
-
-用途を問わず、好きにしてもらってかまいません。いちいち許可とか求めないでくだされ。
-
-wizd自体、GPLに感染しないように気を付けています。
-再配布時も、ソース公開義務はありません。
-勝手にCopyrightとか付けて再配布してもかまいません。
-ただし、以後の責任は取るように。
-
-wizd内部で、libnkfを使用しています。
-改変がlibnkfに及ぶ場合には、libnkfに書かれている指示に従ってください。
-
-スキン『basicblue』の著作権は、『237』氏に帰属します。
-詳しくは、basicblueディレクトリにあるドキュメントを参照の事。
-
-当然ですが、すべて自己責任でおながいしますヽ(´ー｀)ノ
-
-
-
-■■ 履歴 ■■
-
-2003/12/21      0.12    AVeL LinkPlayer買おうか悩み中
-・音楽ファイル単独再生時にも、表示が化けなくするように修正（playlist機能の応用）
-・MP3 IDタグ有りの時は、ファイル名の代わりにIDタグを表示できるようタグ追加。
-・MP3 IDタグをファイル名の代わりに使うとき、表示長制限の効くタグを追加。
-(ID3タグは、ファイル名ソートの対象にはならない。ソートはオリジナルファイル名で行われる)
-・allplay/single play時、ID3タグありMP3ファイルの時は、ファイル名の代わりにID3タグ情報を表示するように変更。
-・upl(Uzu Play List)をパクった、plw(wizd Play List)ファイルに対応。
-・allplay時、0x7C を含むSJIS文字があるとallplayが停止する問題に対応。(該当文字が伏せ字'＊'になります)
-・flag_unknown_extention_file_hideがtrue時、'.'を含むフォルダ名が表示されなくなるバグを修正。
-
-
-
-2003/12/13      0.11    おひさしぶり
-
-・サーバ側(OS側)の日本語文字コードを指定可能に。(default:auto)
-・上記対応に伴い、UTF-8対応版を標準に。
-・CAP/HEXエンコード対応(default:off)
-・ファイル名に'#'が含まれていると再生時エラーになってたのを修正。
-・『表示ファイル名から()[]に囲まれた部分を削除する機能』が、OSの文字コードがSJISだとバケてたバグを修正。
-・上位ディレクトリ名と同じ文字列を削除する機能実装。(default:off)
-・MP3のID3タグ表示に対応。(ID3v1のみ)
-・旧ファームでのallplay文字化け対策(全半角変換)をON/OFF可能に。(default:off)
-・『basicbule』日付表示のためのタグ追加。
-・別配布めんどいので、『basicbule for wizd0.11』を同梱。
-・その他、細々と修正。
-
-
-
-2003/09/23      0.10
-
-・atoll()使ってた所を、strtoull()に変更。
-・画像データは、サイズの代わりに画像サイズ表示に(JPG/GIF/PNG)
-・画像ビューア実装。Uzuをまんまパクリ(*´Д`)
-・MediaWizからのソート変更が可能に。(画面下部のOptionMenu)
-・特定ディレクトリ隠し機能。（エロ動画置き場対応）
-・上記変更に伴いスキンも変更。
-・表示ファイル名から()[]に囲まれた部分を削除する機能実装。
-・setuid機能実装。init起動でもroot以外に変更可能。
-・クライアントのUser-Agentでのアクセスコントロール実装。
-
-
-
-2003/09/20      0.09
-
-・自動登録部のエラーチェックにバグがあったのを修正
-・UTF-8ファイル名に対応したつもり(RedHat10がUTF-8ベースと噂を聞いたので)。ただしバイナリがでかくなるのでDefaultはOFF。（make utf8 で、UTF-8対応版ができる)
-・2G越えファイル対応(LFS対応)したつもり。コンパイルオプション変更。fopen/fseek/fread/fclose を open/lseek/read/close へ変更。4G超えは未チェック(Vine 2.1では4G以上は確認不可)
-・スキンをまたいじる。
-・SVI再生の早送り巻き戻しがバグってたのを修正
-・wizdが知らない拡張子のファイルを隠す機能実装。
-・Uzuとともに配布されているInternetRadio.html を同梱。（Uzu作者様に感謝)
-
-※ 2G超えファイルだと、MediaWizのRange計算がバグってる(マイナスの値が来る)ので、2G超えた部分での早送り巻き戻しがうまく動かない模様。無理やり対策するかとも思ったが、ファームアップの予定があるので放置。
-
-
-
-2003/09/14      0.08
-・オートプレイ実装。バケないようにしたつもり。（「屑」の作者様に感謝）
-・ファイル名、SVI情報表示で長さ制限時もおしりにゴミが付かないようにしたつもり。
-・スキン部を改良。
-・その他、微妙にバグ修正。
-
-
-2003/09/13      0.07
-・アクセスコントロール実装。クライアントIPで禁止許可が設定可能に。(allowのみ）
-・ファイルソート実装。名前、サイズ、タイムスタンプ） 
-・スキン部をかなり修正。旧スキンは使わんといてね。
-・ファイル名表示長制限機能を入れた。ただし日本語気にせずにぶった切るので、運が悪いとおしりにゴミが付く。
-・ストリームファイル、SVIファイル、ノーマルファイル、ディレクトリのスキンを分けた。 
-・SVI情報表示機能に対応。
-・SVI録画時間表示に対応。
-・SVI情報表示も表示長制限機能を入れた。ただし、日本語気にせずぶった(以下略
-・SVIファイルと同名ディレクトリ隠し機能に対応
-・その他、イロイロ直した気がするが忘れた。
-
-
-
-2003/09/10      0.06
-・0.05で指摘された、MacOSXでコンパイル通すための修正項目をMergeしたつもり。だが、0.06でまた修正項目が増えてる予感。
-・sviファイルのファイル名特定方法を変更。sviファイルと、m2pファイルの相対位置さえ合っていれば再生できるようにしたつもり。
-・ちゃんとURIエンコードしたら、IEからでも日本語ファイルをアクセスできるようになった。
-・wizd.conf の設定項目いろいろ変更。
-・自動登録のサーバ名、デフォルトでホスト名が登録されるようにした。
-・ついにスキン実装ヽ(´ー｀)ノ でも動くだけ。多分バグバグ。
-・その他いろいろ。
-
-
-2003/09/07      0.05    
-・MediaWizが、SJISモードかEUCモードかを指定できるようにした。
-・Daemon化が甘かったところを修正。
-・埋め込みファイルメニューを大幅に修正。
-・スキン機能の組み込み準備。(まだ使えないよ)
-・その他もろもろ。
-
-
-
-2003/09/05      0.04    義務は果たしたか？
-・コンパイル後のstrip忘れてた。makefile修正。
-・MediaWiz自動登録機能が、MediaWizじゃないUPnP機器に反応してたのを修正。これでBA8000Proに怒られなくなった。
-・NEC AX10のSVIに対応したつもり。SVIファイルからはファイルパス情報だけ使用。「document_root /mnt/disk1/data/REC」の設定忘れずに。
-・その他。
-
-
-
-2003/09/03      0.03    微妙な修正
-・LinuxサーバのIPアドレス自動検出に。wizd.conf から、server_ip_addressを削除。
-・拡張子m2pなファイルを、mpgに見せかける処理を入れた。m2pファイル再生可能に。
-・その他、細々と修正
-
-
-
-2003/09/02      0.02    イロイロ指摘され、勢いで直す。
-・日本語ファイル名表示に対応。nkf作者様とlibnkf作者様に感謝。
-・ディレクトリ移動で固まる問題を修正。無条件にvod="0"を付けてはいけないらしい。
-・ディレクトリ表示の８個制限をはずした。ファイルが何個あろうともHTML化しますが限界超えた動作は不明。
-・wizd.conf の設定項目に server_name を追加。MediaWizへの自動登録時に使用。
-・wizd_http.c のスパゲッティ化がさらに酷くなる。実験が一段落したら書き直そう。
-・その他、細々と微調整。
-
-
-
-2003/09/01      0.01    MediaWiz入手。とりあえず勢いで作る。
-・Daemonになります。
-・MediaWizが自動認識します。
-・DocumentRoot(/var/wizd)に置いてあるファイルリストを表示します(8個まで)。
-・日本語ファイル名(EUC)は見事にバケます。
-・DocumentRootに置いてあるAVIファイルが再生できます。
-・早送り／巻き戻しできます。
-・ディレクトリ移動するとMediaWizが固まります（；´Д｀）
-・その他バグ、セキュリティホール多分多数ヽ(´ー｀)ノ
-
-
-以上。

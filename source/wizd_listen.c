@@ -91,6 +91,38 @@ void	server_listen()
 		return;
 	}
 
+	/* Check our send buffer size */
+	sock_opt_val=0;
+	i=sizeof(sock_opt_val);
+	if(getsockopt(listen_socket, SOL_SOCKET, SO_SNDBUF, (char *)&sock_opt_val, &i)==0) {
+		debug_log_output("default SO_SNDBUF=%d\n",sock_opt_val);
+		if(global_param.stream_sndbuf && (sock_opt_val != global_param.stream_sndbuf)) {
+			/* If a buffer size was requested, set it */
+			sock_opt_val = global_param.stream_sndbuf;
+			setsockopt(listen_socket, SOL_SOCKET, SO_SNDBUF, (char *)&sock_opt_val, sizeof(sock_opt_val));
+			i = sizeof(sock_opt_val);
+			if(getsockopt(listen_socket, SOL_SOCKET, SO_SNDBUF, (char *)&sock_opt_val, &i)==0) {
+				debug_log_output("Changed SO_SNDBUF to %d\n",sock_opt_val);
+			}
+		}
+	}
+
+	/* Check our recv buffer size */
+	sock_opt_val=0;
+	i=sizeof(sock_opt_val);
+	if(getsockopt(listen_socket, SOL_SOCKET, SO_RCVBUF, (char *)&sock_opt_val, &i)==0) {
+		debug_log_output("default SO_RCVBUF=%d\n",sock_opt_val);
+		if(global_param.stream_rcvbuf && (sock_opt_val != global_param.stream_rcvbuf)) {
+			/* If a buffer size was requested, set it */
+			sock_opt_val = global_param.stream_rcvbuf;
+			setsockopt(listen_socket, SOL_SOCKET, SO_RCVBUF, (char *)&sock_opt_val, sizeof(sock_opt_val));
+			i = sizeof(sock_opt_val);
+			if(getsockopt(listen_socket, SOL_SOCKET, SO_RCVBUF, (char *)&sock_opt_val, &i)==0) {
+				debug_log_output("Changed SO_RCVBUF to %d\n",sock_opt_val);
+			}
+		}
+	}
+
 	// =============================
 	// listen¼Â¹Ô
 	// =============================

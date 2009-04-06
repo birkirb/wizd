@@ -24,8 +24,10 @@ typedef struct _skin_mapping {
 typedef struct  {
 	unsigned char	current_path_name[WIZD_FILENAME_MAX];	// 現パス 表示用(文字コード調整済み)
 
+	unsigned char	recv_host[256];
 	unsigned char	current_directory_name[WIZD_FILENAME_MAX];	// 現ディレクトリ 表示用(文字コード調整済み)
 	unsigned char	current_directory_link[WIZD_FILENAME_MAX];	// 現ディレクトリ Link用（URIエンコード済み）
+	unsigned char	current_directory_absolute[FILENAME_MAX];	// 現ディレクトリLink用（URIエンコード済み）
 	unsigned char	current_directory_link_no_param[WIZD_FILENAME_MAX];	// 現ディレクトリ Link用（URIエンコード済み）
 
 	unsigned char	parent_directory_name[WIZD_FILENAME_MAX];	// 親ディレクトリ表示用
@@ -43,7 +45,13 @@ typedef struct  {
 
 	unsigned char	focus[64];			// BODYタグ用 onloadset="$focus"
 
+	unsigned char	default_photolist[WIZD_FILENAME_MAX];
+	unsigned char	default_musiclist[WIZD_FILENAME_MAX];
+
 	int		stream_files;	// 再生可能ファイル数
+	int		photo_files;
+	int		music_files;
+	int		stream_dirs;
 
 
 	// 隠しディレクトリ情報
@@ -65,10 +73,13 @@ typedef struct  {
 	unsigned char	file_extension[16];	// 拡張子のみ(文字コード調整済み)
 
 	unsigned char	file_uri_link[WIZD_FILENAME_MAX];	// ファイルへのLink(URIエンコード済み)
+	unsigned char	chapter_link[WIZD_FILENAME_MAX];
+	unsigned char	chapter_str[WIZD_FILENAME_MAX];
 
 	unsigned char	file_timestamp[32];		// タイムスタンプ表示用
 	unsigned char	file_timestamp_date[32];	// タイムスタンプ表示用 日付のみ
 	unsigned char	file_timestamp_time[32];	// タイムスタンプ表示用 日時のみ
+	unsigned char	file_duration[32];	// タイムスタンプ表示用 日時のみ
 
 	unsigned char	file_size_string[32];	// ファイルサイズ表示用
 
@@ -163,7 +174,13 @@ void skin_direct_replace_image_viewer(SKIN_T *skin, SKIN_REPLASE_IMAGE_VIEWER_DA
 #define		SKIN_MENU_LINE_DIR_HTML				"line_dir.html"
 #define		SKIN_MENU_LINE_PSEUDO_DIR_HTML		"line_pseudo.html"
 #define		SKIN_MENU_LINE_JPEG_FILE_HTML		"line_jpeg.html"
+#define		SKIN_MENU_LINE_URL_FILE_HTML		"line_url.html"
+#define		SKIN_MENU_LINE_DELETE_FILE_HTML		"line_delete.html"
 #define		SKIN_MENU_TAIL_HTML					"tail.html"
+
+#define		SKIN_DELETE_HEAD_HTML					"delete_head.html"
+#define		SKIN_DELETE_TAIL_HTML					"delete_tail.html"
+#define		SKIN_DELETE_CONFIRM_HTML				"delete_confirm.html"
 
 #ifdef NEED_SKIN_MAPPING_DEFINITION
 SKIN_MAPPING_T skin_mapping[] = {
@@ -178,6 +195,8 @@ SKIN_MAPPING_T skin_mapping[] = {
 	{TYPE_DOCUMENT,		SKIN_MENU_LINE_DOCUMENT_FILE_HTML},
 	{TYPE_SVI,			SKIN_MENU_LINE_SVI_FILE_HTML},
 	{TYPE_JPEG,			SKIN_MENU_LINE_JPEG_FILE_HTML},
+	{TYPE_URL,		SKIN_MENU_LINE_URL_FILE_HTML},
+	{TYPE_DELETE,		SKIN_MENU_LINE_DELETE_FILE_HTML},
 	{-1,				NULL},
 };
 #else
@@ -185,6 +204,7 @@ extern SKIN_MAPPING_T skin_mapping[];
 // extern, but never be used? :p
 #endif
 
+#define		SKIN_KEYWORD_SERVER_ADDRESS		"<!--WIZD_INSERT_SERVER_ADDRESS-->"
 #define		SKIN_KEYWORD_SERVER_NAME		"<!--WIZD_INSERT_SERVER_NAME-->"		// サーバ名＆バージョン。表示用
 #define		SKIN_KEYWORD_CURRENT_PATH		"<!--WIZD_INSERT_CURRENT_PATH-->"		// 現PATH。表示用
 #define		SKIN_KEYWORD_CURRENT_DIR_NAME	"<!--WIZD_INSERT_CURRENT_DIR_NAME-->"		// 現ディレクトリ名。表示用
@@ -195,6 +215,7 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_PARLENT_DIR_NAME	"<!--WIZD_INSERT_PARENT_DIR_NANE-->"	// 親ディレクトリ。表示用
 
 #define		SKIN_KEYWORD_CURRENT_PATH_LINK	"<!--WIZD_INSERT_CURRENT_PATH_LINK-->"	// 現PATH。LINK用。URIエンコード済み
+#define		SKIN_KEYWORD_CURRENT_PATH_FULL_LINK	"<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->"
 #define		SKIN_KEYWORD_CURRENT_PATH_LINK_NO_PARAM	"<!--WIZD_INSERT_CURRENT_PATH_LINK_NO_PARAM-->"	// 現PATH。LINK用。URIエンコード済み
 
 
@@ -210,18 +231,22 @@ extern SKIN_MAPPING_T skin_mapping[];
 
 #define		SKIN_KEYWORD_CLIENT_CHARSET		"<!--WIZD_INSERT_CLIENT_CHARSET-->"		// クライアントの漢字コード
 
-
+#define		SKIN_KEYWORD_DEFAULT_PHOTOLIST	"<!--WIZD_INSERT_DEFAULT_PHOTOLIST-->"
+#define		SKIN_KEYWORD_DEFAULT_MUSICLIST	"<!--WIZD_INSERT_DEFAULT_MUSICLIST-->"
 
 
 #define		SKIN_KEYWORD_LINE_FILE_NAME			"<!--WIZD_INSERT_LINE_FILE_NAME-->"			// ファイル名 表示用
 #define		SKIN_KEYWORD_LINE_FILE_NAME_NO_EXT	"<!--WIZD_INSERT_LINE_FILE_NAME_NO_EXT-->"	// ファイル名(拡張子無し) 表示用
 #define		SKIN_KEYWORD_LINE_FILE_EXT			"<!--WIZD_INSERT_LINE_FILE_EXT-->"			// ファイル拡張子 表示用
 #define		SKIN_KEYWORD_LINE_FILE_LINK			"<!--WIZD_INSERT_LINE_FILE_LINK-->"			// ファイル名 リンク用 URIエンコード
+#define		SKIN_KEYWORD_LINE_CHAPTER_LINK		"<!--WIZD_INSERT_LINE_CHAPTER_LINK-->"
+#define		SKIN_KEYWORD_LINE_CHAPTER_STR		"<!--WIZD_INSERT_LINE_CHAPTER_STR-->"
 
 #define		SKIN_KEYWORD_LINE_TIMESTAMP		"<!--WIZD_INSERT_LINE_TIMESTAMP-->"		// タイムスタンプ 日時(YYYY/MM/DD HH:MM) 表示用
 
 #define		SKIN_KEYWORD_LINE_FILE_DATE		"<!--WIZD_INSERT_LINE_FILE_DATE-->"		// タイムスタンプ 日付のみ(YYYY/MM/DD) 表示用
 #define		SKIN_KEYWORD_LINE_FILE_TIME		"<!--WIZD_INSERT_LINE_FILE_TIME-->"		// タイムスタンプ 時刻のみ(HH:MM) 表示用
+#define		SKIN_KEYWORD_LINE_FILE_DURATION		"<!--WIZD_INSERT_LINE_FILE_DURATION-->"		// タイムスタンプ 時刻のみ(HH:MM) 表示用
 
 
 #define		SKIN_KEYWORD_LINE_COLUMN_NUM	"<!--WIZD_INSERT_LINE_COLUMN_NUM-->"	// 行番号
@@ -283,6 +308,12 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_DEL_IS_NO_STREAM_FILES		"<!--WIZD_DELETE_IS_NO_STREAM_FILES-->"
 #define		SKIN_KEYWORD_DEL_IS_NO_STREAM_FILES_E	"<!--/WIZD_DELETE_IS_NO_STREAM_FILES-->"
 
+#define		SKIN_KEYWORD_DEL_IS_NO_MUSIC_FILES		"<!--WIZD_DELETE_IS_NO_MUSIC_FILES-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_MUSIC_FILES_E	"<!--/WIZD_DELETE_IS_NO_MUSIC_FILES-->"
+
+#define		SKIN_KEYWORD_DEL_IS_NO_PHOTO_FILES		"<!--WIZD_DELETE_IS_NO_PHOTO_FILES-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_PHOTO_FILES_E	"<!--/WIZD_DELETE_IS_NO_PHOTO_FILES-->"
+
 /* 新規, DELETE (IF THERE) IS NO... と読む */
 // 前ページが存在しない場合 (HEAD/TAILのみ)
 #define		SKIN_KEYWORD_DEL_IS_NO_PAGE_PREV2		"<!--WIZD_IF_PAGE_PREV-->"
@@ -296,6 +327,12 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_DEL_IS_NO_STREAM_FILES2	"<!--WIZD_IF_STREAM_FILES-->"
 #define		SKIN_KEYWORD_DEL_IS_NO_STREAM_FILES2_E	"<!--/WIZD_IF_STREAM_FILES-->"
 
+#define		SKIN_KEYWORD_DEL_IS_NO_MUSIC_FILES2		"<!--WIZD_IF_MUSIC_FILES-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_MUSIC_FILES2_E	"<!--/WIZD_IF_MUSIC_FILES-->"
+
+#define		SKIN_KEYWORD_DEL_IS_NO_PHOTO_FILES2		"<!--WIZD_IF_PHOTO_FILES-->"
+#define		SKIN_KEYWORD_DEL_IS_NO_PHOTO_FILES2_E	"<!--/WIZD_IF_PHOTO_FILES-->"
+
 // 前ページが存在する場合削除 (HEAD/TAILのみ)
 #define		SKIN_KEYWORD_DEL_IS_PAGE_PREV		"<!--WIZD_IF_NO_PAGE_PREV-->"
 #define		SKIN_KEYWORD_DEL_IS_PAGE_PREV_E		"<!--/WIZD_IF_NO_PAGE_PREV-->"
@@ -308,6 +345,11 @@ extern SKIN_MAPPING_T skin_mapping[];
 #define		SKIN_KEYWORD_DEL_IS_STREAM_FILES	"<!--WIZD_IF_NO_STREAM_FILES-->"
 #define		SKIN_KEYWORD_DEL_IS_STREAM_FILES_E	"<!--/WIZD_IF_NO_STREAM_FILES-->"
 
+#define		SKIN_KEYWORD_DEL_IS_MUSIC_FILES		"<!--WIZD_IF_NO_MUSIC_FILES-->"
+#define		SKIN_KEYWORD_DEL_IS_MUSIC_FILES_E	"<!--/WIZD_IF_NO_MUSIC_FILES-->"
+
+#define		SKIN_KEYWORD_DEL_IS_PHOTO_FILES		"<!--WIZD_IF_NO_PHOTO_FILES-->"
+#define		SKIN_KEYWORD_DEL_IS_PHOTO_FILES_E	"<!--/WIZD_IF_NO_PHOTO_FILES-->"
 
 // MP3タグが存在しないとき (LINEのみ)
 #define		SKIN_KEYWORD_DEL_IS_NO_MP3_TAGS			"<!--WIZD_DELETE_IS_NO_MP3_TAGS-->"
@@ -342,6 +384,9 @@ extern SKIN_MAPPING_T skin_mapping[];
 // focus が指定されていないとき削除
 #define		SKIN_KEYWORD_DEL_IF_FOCUS_IS_NOT_SPECIFIED		"<!--WIZD_IF_FOCUS_IS_SPECIFIED-->"
 #define		SKIN_KEYWORD_DEL_IF_FOCUS_IS_NOT_SPECIFIED_E	"<!--/WIZD_IF_FOCUS_IS_SPECIFIED-->"
+
+// dvdopt
+#define		SKIN_KEYWORD_DVD_OPTIONS	"<!--WIZD_INSERT_DVD_OPTIONS-->"
 
 
 #define		SKIN_IMAGE_VIEWER_HTML 	"image_viewer.html"	// ImageViewerのスキン

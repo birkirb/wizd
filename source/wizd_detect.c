@@ -34,6 +34,7 @@
 #define		SSDP_CHECK_KEY		"Server"
 #define		SSDP_CHECK_VALUE	"Syabas myiBox"
 
+#define debug_log_output (void)
 
 // =============================================================
 // MediaWiz検出部
@@ -81,6 +82,11 @@ void	server_detect()
 		exit( 1 );
     }
 
+    // REUSEADDR 設定
+    sock_opt_val = 1;
+    setsockopt(ssdp_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&sock_opt_val, sizeof(sock_opt_val));
+
+
     // ===========================================
     // ソケットアドレス構造体に値をセット
     // ===========================================
@@ -104,12 +110,6 @@ void	server_detect()
 	// ===============================
 	// ソケットにオプションをセット
 	// ===============================
-
-
-
-	// REUSEADDR 設定
-	sock_opt_val = 1;
-	setsockopt(ssdp_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&sock_opt_val, sizeof(sock_opt_val));
 
 
 	// SSDPマルチキャスト メンバシップ設定

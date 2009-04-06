@@ -19,10 +19,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <netinet/in.h>
 #include <dirent.h>
-
+#include <fcntl.h>
 
 #include "wizd.h"
 
@@ -178,12 +177,12 @@ void 	server_http_process(int accept_socket)
 	// ----------------------------------------
 	extension_del_rename(http_recv_info.recv_uri, sizeof(http_recv_info.recv_uri));
 
-
 	// ============================
 	// ファイルチェック
 	//  種類に応じて分岐
 	// ============================
 	result = http_file_check(&http_recv_info);
+	debug_log_output("http_file_check returns %d", result);
 
 	if (result != 6 && !strcmp(http_recv_info.request_method, "POST")) {
 		debug_log_output("BAD POST REQUEST.");
@@ -200,6 +199,24 @@ void 	server_http_process(int accept_socket)
 	}
 	else if ( result == 0 ) // ファイル実体ならば、実体転送。
 	{
+		if ( global_param.flag_allow_delete && (strcasecmp(http_recv_info.action, "delete" ) == 0) )
+		{
+			// ----------------------------------------
+			// Delete file
+			// ----------------------------------------
+			char path[WIZD_FILENAME_MAX];
+
+			debug_log_output("Delete file start!\n");
+			debug_log_output("unlink(%s)", http_recv_info.send_filename);
+			unlink(http_recv_info.send_filename);
+
+			// Redirect to directory
+			strncpy(path, http_recv_info.recv_uri, sizeof(path));
+			cut_after_last_character(path, '/');
+			strcat(path, "/");
+			http_redirect_response(accept_socket, &http_recv_info, path);
+			debug_log_output("Delete file end!\n");
+		} else
 		// actionに、ImageViewerが指示されている？
 		if ( strcasecmp(http_recv_info.action, "ImageView" ) == 0)
 		{
@@ -325,6 +342,51 @@ void 	server_http_process(int accept_socket)
 			http_option_menu(accept_socket, &http_recv_info);
 			debug_log_output("HTTP Option menu end.\n");
 		}
+		else if ( strcasecmp(http_recv_info.action, "copy" ) == 0)
+		{
+			// --------------------------------------------
+			// Copy the default playlist to this directory
+			// --------------------------------------------
+			char source[WIZD_FILENAME_MAX];
+			char dest[WIZD_FILENAME_MAX];
+			int fd_source, fd_dest;
+
+			if(http_recv_info.default_file_type == TYPE_MUSICLIST) {
+				snprintf(dest, sizeof(dest), "%s/%s", http_recv_info.send_filename, DEFAULT_MUSICLIST);
+				snprintf(source, sizeof(source), "%s/%s/%s", global_param.skin_root, global_param.skin_name, DEFAULT_MUSICLIST);
+			} else {
+				snprintf(dest, sizeof(dest), "%s/%s", http_recv_info.send_filename, DEFAULT_PHOTOLIST);
+				snprintf(source, sizeof(source), "%s/%s/%s", global_param.skin_root, global_param.skin_name, DEFAULT_PHOTOLIST);
+			}
+			duplex_character_to_unique(source, '/');
+			duplex_character_to_unique(dest, '/');
+
+			debug_log_output("Copying '%s' to '%s'", source, dest);
+
+			// Copy the file
+			fd_source = open(source, O_RDONLY);
+			if(fd_source >= 0) {
+				fd_dest = open(dest, O_CREAT | O_TRUNC | O_WRONLY, S_IREAD | S_IWRITE);
+				if(fd_dest >= 0) {
+					while( (i = read(fd_source, source, sizeof(source))) > 0 ) {
+						write(fd_dest, source, i);
+					}
+					close(fd_dest);
+				} else {
+					debug_log_output("Failed to open destination file");
+				}
+				close(fd_source);
+			} else {
+				debug_log_output("Failed to open source file");
+			}
+			
+			// Redirect to the directory
+			strncpy(dest, http_recv_info.recv_uri, sizeof(dest));
+			cut_after_last_character(dest, '/');
+			strcat(dest, "/");
+			http_redirect_response(accept_socket, &http_recv_info, dest);
+			debug_log_output("Copy playlist end!\n");
+		}
 		else	// アクションに指定無し。
 		{
 			// -------------------------------------
@@ -337,6 +399,10 @@ void 	server_http_process(int accept_socket)
 		}
 	}
 
+	// Clean shutdown
+	shutdown(accept_socket, SHUT_WR);
+ 
+	for(i=0; i<1 && (read(accept_socket, &result, sizeof(result))>0); i++);
 
 
 
@@ -489,6 +555,33 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 						continue;
 					}
 
+					// "type=" allplay list type
+					if (strncasecmp( work_buf2, "type=movie", strlen("type=movie") ) == 0 )
+					{
+						http_recv_info_p->default_file_type = TYPE_MOVIE;
+						continue;
+					}
+					if (strncasecmp( work_buf2, "type=music", strlen("type=music") ) == 0 )
+					{
+						http_recv_info_p->default_file_type = TYPE_MUSIC;
+						continue;
+					}
+					if (strncasecmp( work_buf2, "type=photo", strlen("type=photo") ) == 0 )
+					{
+						http_recv_info_p->default_file_type = TYPE_JPEG;
+						continue;
+					}
+					if (strncasecmp( work_buf2, "type=soundtrack", strlen("type=soundtrack") ) == 0 )
+					{
+						http_recv_info_p->default_file_type = TYPE_MUSICLIST;
+						continue;
+					}
+					if (strncasecmp( work_buf2, "type=slideshow", strlen("type=slideshow") ) == 0 )
+					{
+						http_recv_info_p->default_file_type = TYPE_PLAYLIST;
+						continue;
+					}
+					
 					// "option="あるか調査
 					if (strncasecmp( work_buf2, "option=", strlen("option=") ) == 0 )
 					{
@@ -509,6 +602,18 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 
 						// 構造体に値を保存。
 						strncpy(http_recv_info_p->sort, work_buf2, sizeof(http_recv_info_p->sort));
+						continue;
+					}
+
+
+					// "dvdopt="あるか調査
+					if (strncasecmp( work_buf2, "dvdopt=", strlen("dvdopt=") ) == 0 )
+					{
+						// = より前を削除
+						cut_before_character(work_buf2, '=');
+
+						// 構造体に値を保存。
+						strncpy(http_recv_info_p->dvdopt, work_buf2, sizeof(http_recv_info_p->dvdopt));
 						continue;
 					}
 
@@ -560,6 +665,7 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 
 			// 構造体に保存
 			strncpy( http_recv_info_p->user_agent, line_buf, sizeof(http_recv_info_p->user_agent));
+			http_recv_info_p->hi_res = strstr(line_buf, "Res1280") != NULL;
 			continue;
 		}
 
@@ -608,7 +714,10 @@ static int http_header_receive(int accept_socket, HTTP_RECV_INFO *http_recv_info
 			cut_first_character(line_buf, ' ');
 
 			strncpy(http_recv_info_p->recv_host, line_buf, sizeof(http_recv_info_p->recv_host));
-
+			if(NULL == strchr(http_recv_info_p->recv_host, ':')) {
+				debug_log_output("CLIENT BUG: Host header field was missing port number - fixing");
+				snprintf(http_recv_info_p->recv_host + strlen(http_recv_info_p->recv_host), sizeof(http_recv_info_p->recv_host)-1, ":%d", global_param.server_port);
+			}
 			debug_log_output("%s '%s'", HTTP_HOST, http_recv_info_p->recv_host);
 
 			continue;
@@ -679,8 +788,6 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 	memset(http_recv_info_p->send_filename, '\0', sizeof(http_recv_info_p->send_filename));
 	memset(file_extension, '\0', sizeof(file_extension));
 
-
-
 	// -------------------------
 	// ファイルチェック
 	// -------------------------
@@ -688,6 +795,26 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 	// 要求パスのフルパス生成。
 	strncpy(http_recv_info_p->send_filename, global_param.document_root, sizeof(http_recv_info_p->send_filename));
 	strncat(http_recv_info_p->send_filename, http_recv_info_p->recv_uri, sizeof(http_recv_info_p->send_filename));
+
+	// Check if the URI is an alias
+	if(global_param.num_aliases && (http_recv_info_p->recv_uri[0] == '/')) {
+		int i,len;
+		for(i=0; i<global_param.num_aliases; i++) {
+			len = strlen(global_param.alias_name[i]);
+			if(   (strncmp(http_recv_info_p->recv_uri+1, global_param.alias_name[i], len)==0)
+			   && (http_recv_info_p->recv_uri[len+1] == '/')) {
+				debug_log_output("substituting alias path '%s' for alias '%s'\n",
+					global_param.alias_path[i], global_param.alias_name[i]);
+				// The name matches an alias - substitute the alias path
+				strncpy(http_recv_info_p->send_filename, global_param.alias_path[i], sizeof(http_recv_info_p->send_filename));
+				strncat(http_recv_info_p->send_filename, http_recv_info_p->recv_uri+len+1, sizeof(http_recv_info_p->send_filename)-strlen(http_recv_info_p->send_filename));
+				// Set the default allplay type, if it was not specified in the http request
+				if(http_recv_info_p->default_file_type == TYPE_UNKNOWN)
+					http_recv_info_p->default_file_type = global_param.alias_default_file_type[i];
+				break;
+			}
+		}
+	}
 
 	// '/' が重なってるところの重複を排除。
 	duplex_character_to_unique(http_recv_info_p->send_filename, '/');
@@ -699,12 +826,92 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 	result = stat(http_recv_info_p->send_filename, &send_filestat);
 	debug_log_output("stat: result=%d, st_mode=0x%04X, S_ISREG=%d, S_ISDIR=%d\n", result, send_filestat.st_mode, S_ISREG(send_filestat.st_mode), S_ISDIR(send_filestat.st_mode) );
 
+	if(result < 0)
+	{
+		debug_log_output("stat() error\n", result);
+
+		// ----------------------------------------------------------------------------
+		// もし、実体が存在しなかったら、skin置き場に変えてもう一度チェック
+		// Skin置き場は実体ファイルのみ認める。
+		// ----------------------------------------------------------------------------
+		debug_log_output("DocumentRoot not found. SkinDir Check.");
+
+		debug_log_output("global_param.skin_root='%s'", global_param.skin_root);
+		debug_log_output("global_param.skin_name='%s'", global_param.skin_name);
+
+
+		// skin置き場にあるモノとして、フルパス生成。
+		strncpy(http_recv_info_p->send_filename, global_param.skin_root, sizeof(http_recv_info_p->send_filename));
+		strncat(http_recv_info_p->send_filename, global_param.skin_name, sizeof(http_recv_info_p->send_filename));
+		strncat(http_recv_info_p->send_filename, http_recv_info_p->recv_uri, sizeof(http_recv_info_p->send_filename));
+
+		// '/' が重なってるところの重複を排除。
+		duplex_character_to_unique(http_recv_info_p->send_filename, '/');
+		debug_log_output("SkinDir:http_recv_info_p->send_filename='%s'\n", http_recv_info_p->send_filename);
+
+
+		// ------------------------------------------------------------
+		// Skin置き場にファイルあるかチェック。
+		// ------------------------------------------------------------
+		result = stat(http_recv_info_p->send_filename, &send_filestat);
+		debug_log_output("stat: result=%d, st_mode=%04X, S_ISREG=%d\n", result, send_filestat.st_mode, S_ISREG(send_filestat.st_mode));
+
+		if( result < 0 ) {
+			// Strip off the path, and try just the filename in the skin directory
+			unsigned char *ptr = strrchr(http_recv_info_p->recv_uri, '/');
+			if((ptr != NULL) && (ptr != http_recv_info_p->recv_uri)) {
+				strncpy(http_recv_info_p->send_filename, global_param.skin_root, sizeof(http_recv_info_p->send_filename));
+				strncat(http_recv_info_p->send_filename, global_param.skin_name, sizeof(http_recv_info_p->send_filename)-strlen(http_recv_info_p->send_filename));
+				strncat(http_recv_info_p->send_filename, ptr, sizeof(http_recv_info_p->send_filename)-strlen(http_recv_info_p->send_filename));
+				duplex_character_to_unique(http_recv_info_p->send_filename, '/');
+				debug_log_output("SkinDir:http_recv_info_p->send_filename='%s'\n", http_recv_info_p->send_filename);
+				result = stat(http_recv_info_p->send_filename, &send_filestat);
+				debug_log_output("stat: result=%d, st_mode=%04X, S_ISREG=%d\n", result, send_filestat.st_mode, S_ISREG(send_filestat.st_mode));
+			}
+		}
+
+		// ファイル実体と検知。
+		if ( ( result < 0 ) || !(S_ISREG(send_filestat.st_mode)) )
+		{
+			// -------------------------------------
+			// File Not Found.
+			// やっぱり、404にしよう。
+			// -------------------------------------
+
+			return ( -1 ) ;
+		}
+	}
+
+
 	// stat()の結果で分岐。
 	if ( ( result == 0 ) && ( S_ISREG(send_filestat.st_mode) == 1 ) )
 	{
 		 // ファイル実体と検知
 		debug_log_output("'%s' is File!!", http_recv_info_p->send_filename);
 		debug_log_output("send_filestat.st_size= %lld\n", send_filestat.st_size);
+
+		// Hack to overcome Linkplayer bug - it limits bookmark offset to (2^31)-1
+		// so we remember the last bookmark served so we can recover the real offset
+		if((http_recv_info_p->range_start_pos == 2147483647) && global_param.bookmark_threshold) {
+			// Check for the real bookmark
+			FILE *fp;
+			off_t offset;
+			char work_buf[WIZD_FILENAME_MAX];
+			snprintf(work_buf, sizeof(work_buf), "%s.wizd.bookmark", 
+				http_recv_info_p->send_filename);
+			debug_log_output("Double-checking bookmark: '%s'", work_buf);
+			fp = fopen(work_buf, "r");
+			if(fp != NULL) {
+				fgets(work_buf, sizeof(work_buf), fp);
+				fclose(fp);
+				offset = atoll(work_buf);
+				if(offset > http_recv_info_p->range_start_pos) {
+					debug_log_output("Detected LinkPlayer2 bookmark bug, replacing 'Range: %lld-' with 'Range: %lld-'",
+						http_recv_info_p->range_start_pos, offset);
+					http_recv_info_p->range_start_pos = offset;
+				}
+			}
+		}
 
 
 		// -------------------------------------------
@@ -723,6 +930,7 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 			return ( 2 );	// sviファイル
 		}
 		else if (( strcasecmp(file_extension, "plw") == 0  ) ||
+				 ( strcasecmp(file_extension, "pls") == 0  ) ||
 				 ( strcasecmp(file_extension, "m3u") == 0  ) ||
 				 ( strcasecmp(file_extension, "upl") == 0  ) )
 		{
@@ -759,79 +967,9 @@ static int http_file_check( HTTP_RECV_INFO *http_recv_info_p)
 
 		return ( 1 ) ;	// ディレクトリ
 	}
-	else
-	{
-		debug_log_output("stat() error\n", result);
 
-		// ----------------------------------------------------------------------------
-		// もし、実体が存在しなかったら、skin置き場に変えてもう一度チェック
-		// Skin置き場は実体ファイルのみ認める。
-		// ----------------------------------------------------------------------------
-		debug_log_output("DocumentRoot not found. SkinDir Check.");
-
-		debug_log_output("global_param.skin_root='%s'", global_param.skin_root);
-		debug_log_output("global_param.skin_name='%s'", global_param.skin_name);
-
-
-		// skin置き場にあるモノとして、フルパス生成。
-		strncpy(http_recv_info_p->send_filename, global_param.skin_root, sizeof(http_recv_info_p->send_filename));
-		strncat(http_recv_info_p->send_filename, global_param.skin_name, sizeof(http_recv_info_p->send_filename));
-		strncat(http_recv_info_p->send_filename, http_recv_info_p->recv_uri, sizeof(http_recv_info_p->send_filename));
-
-		// '/' が重なってるところの重複を排除。
-		duplex_character_to_unique(http_recv_info_p->send_filename, '/');
-		debug_log_output("SkinDir:http_recv_info_p->send_filename='%s'\n", http_recv_info_p->send_filename);
-
-
-		// ------------------------------------------------------------
-		// Skin置き場にファイルあるかチェック。
-		// ------------------------------------------------------------
-		result = stat(http_recv_info_p->send_filename, &send_filestat);
-		debug_log_output("stat: result=%d, st_mode=%04X, S_ISREG=%d\n", result, send_filestat.st_mode, S_ISREG(send_filestat.st_mode));
-
-
-		// ファイル実体と検知。
-		if ( ( result == 0 ) && (S_ISREG(send_filestat.st_mode) == 1 ) )
-		{
-			 // ファイル実体と検知
-			debug_log_output("'%s' is File!!", http_recv_info_p->send_filename);
-			debug_log_output("send_filestat.st_size= %lld\n", send_filestat.st_size);
-
-			// -------------------------------------------
-			// ファイルの拡張子より、Content-type を決定
-			// -------------------------------------------
-			filename_to_extension(http_recv_info_p->send_filename, file_extension, sizeof(file_extension));
-			debug_log_output("http_recv_info_p->send_filename='%s', file_extension='%s'\n", http_recv_info_p->send_filename, file_extension);
-
-			check_file_extension_to_mime_type(file_extension, http_recv_info_p->mime_type,  sizeof(http_recv_info_p->mime_type));
-
-			// う、この辺整理したい...
-			// けど、とりあえず skinででも動くようにしちゃえ(ノД`)
-			if ( strcasecmp(file_extension, "cgi") == 0  )
-			{
-				// CGIの実行が不許可なら、Not Found.
-				return ( global_param.flag_execute_cgi ? 6 : -1 );	// cgiファイル
-			}
-
-			return ( 0 );	// File実体
-
-		}
-		else
-		{
-
-			// -------------------------------------
-			// File Not Found.
-			// やっぱり、404にしよう。
-			// -------------------------------------
-
-			return ( -1 ) ;
-		}
-
-	}
-
-
-	return ( 1 );
-
+	// File not found
+	return ( -1 );
 }
 
 
@@ -908,20 +1046,36 @@ static int http_redirect_response(int accept_socket, HTTP_RECV_INFO *http_recv_i
 	return 0;
 }
 
-static int http_not_found_response(int accept_socket, HTTP_RECV_INFO *http_recv_info)
+static int http_not_found_response(int accept_socket, HTTP_RECV_INFO *http_recv_info_p)
 {
-/*
 	char buffer[WIZD_FILENAME_MAX];
 
-	snprintf(buffer, sizeof(buffer),
-		"HTTP/1.1 404 Not Found\r\n"
-		"\r\n"
-	);
+	if((strlen(http_recv_info_p->mime_type)==0) || (strcmp(http_recv_info_p->mime_type, "text/html") == 0)) {
+	    snprintf(buffer, sizeof(buffer),
+		HTTP_NOT_FOUND
+		HTTP_CONNECTION
+		HTTP_CONTENT_TYPE
+		HTTP_END
+		"<HTML><HEAD><TITLE>404 Not Found</TITLE></HEAD>\r\n"
+		"<BODY>File not found<P>\r\n"
+		"%s\r\n"
+		"</BODY></HTML>\r\n", http_recv_info_p->mime_type, http_recv_info_p->recv_uri
+	    );
+	} else {
+	    snprintf(buffer, sizeof(buffer),
+			HTTP_NOT_FOUND
+			HTTP_CONNECTION
+			HTTP_CONTENT_TYPE
+			HTTP_END, "text/plain" );
+	}
+	debug_log_output("Not found: %s\n%s", http_recv_info_p->recv_uri, buffer);
 	write(accept_socket, buffer, strlen(buffer)+1);
 
 	return 0;
+
+/*
+	return http_redirect_response(accept_socket, http_recv_info_p, "/");
 */
-	return http_redirect_response(accept_socket, http_recv_info, "/");
 }
 
 static int http_unauthorized_response(int accept_socket, HTTP_RECV_INFO *http_recv_info)

@@ -1,0 +1,104 @@
+</table>
+<!--WIZD_IF_CLIENT_IS_PC-->
+</div>
+<!--/WIZD_IF_CLIENT_IS_PC-->
+<!--WIZD_IF_CLIENT_IS_NOT_PC-->
+
+</td>
+</tr>
+</table>
+<!--/WIZD_IF_CLIENT_IS_NOT_PC-->
+
+<!--WIZD_DELETE_IS_NO_PAGE_NEXT-->
+<a href="<!--WIZD_INSERT_CURRENT_PATH_LINK-->page=<!--WIZD_INSERT_NEXT_PAGE-->&focus=L1" onfocusload><img src="/spacer.gif" width="1" height="1"></a>
+<!--/WIZD_DELETE_IS_NO_PAGE_NEXT-->
+
+<!--WIZD_IF_CLIENT_IS_PC-->
+<div style="position:absolute; top:400px; left:67px; width:640px;">
+<!--/WIZD_IF_CLIENT_IS_PC-->
+<!-- ***** BOTTOM NAV ***** -->
+<a href="<!--WIZD_INSERT_CURRENT_PATH_LINK-->action=optionMenu&page=<!--WIZD_INSERT_CURRENT_PAGE-->" tvid="setup"></a>
+<a href="syabas:history" tvid="green"></a>
+<img src="/spacer.gif" width="1" height="5"><br>
+<table width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="99%">&nbsp;</td>
+<td width="50" valign="bottom">
+
+<!--WIZD_IF_MUSIC_FILES-->
+  <!--WIZD_IF_PHOTO_FILES-->
+    <a href="<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=shuffle&type=music" tvid="repeat" pod="1,1,<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=shuffle&type=photo">
+    <!--WIZD_IF_CLIENT_IS_PC-->
+    <img src="/spacer.gif" width="50" height="3" border="0">
+    <!--/WIZD_IF_CLIENT_IS_PC-->
+    </a>
+    </td><td width="78" valign="bottom">
+    <a href="<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=allplay&type=music" tvid="play" pod="1,1,<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=allplay&type=photo">
+    <img src="/spacer.gif" width="78" height="3" border="0">
+    </a>
+  <!--/WIZD_IF_PHOTO_FILES-->
+  <!--WIZD_IF_NO_PHOTO_FILES-->
+    <a href="<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=shuffle&type=music" tvid="repeat" vod="playlist">
+    <!--WIZD_IF_CLIENT_IS_PC-->
+    <img src="/spacer.gif" width="50" height="3" border="0">
+    <!--/WIZD_IF_CLIENT_IS_PC-->
+    </a>
+    </td><td width="78" valign="bottom">
+    <a href="<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=allplay&type=music" tvid="play" vod="playlist">
+    <img src="/spacer.gif" width="78" height="3" border="0">
+    </a>
+  <!--/WIZD_IF_NO_PHOTO_FILES-->
+<!--/WIZD_IF_MUSIC_FILES-->
+
+<!--WIZD_IF_NO_MUSIC_FILES-->
+  <!--WIZD_IF_PHOTO_FILES-->
+    <a href="mute" tvid="repeat" pod="1,1,<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=shuffle&type=photo">
+    <!--WIZD_IF_CLIENT_IS_PC-->
+    <img src="/spacer.gif" width="50" height="3" border="0">
+    <!--/WIZD_IF_CLIENT_IS_PC-->
+    </a>
+    </td><td width="78" valign="bottom">
+    <a href="mute" tvid="play" pod="1,1,<!--WIZD_INSERT_CURRENT_PATH_FULL_LINK-->action=allplay&type=photo">
+    <img src="/spacer.gif" width="78" height="3" border="0">
+    </a>
+  <!--/WIZD_IF_PHOTO_FILES-->
+  <!--WIZD_IF_NO_PHOTO_FILES-->
+    <!--WIZD_IF_STREAM_FILES-->
+      <a href="<!--WIZD_INSERT_CURRENT_PATH_LINK-->action=shuffle&type=video" tvid="repeat" vod="playlist">
+      <!--WIZD_IF_CLIENT_IS_PC-->
+      <img src="/spacer.gif" width="50" height="3" border="0">
+      <!--/WIZD_IF_CLIENT_IS_PC--></a>
+      </td><td width="78" valign="bottom">
+      <a href="<!--WIZD_INSERT_CURRENT_PATH_LINK-->action=allplay&type=video" tvid="play" vod="playlist">
+      <img src="/spacer.gif" width="78" height="3" border="0">
+      </a>
+    <!--/WIZD_IF_STREAM_FILES-->
+  <!--/WIZD_IF_NO_PHOTO_FILES-->
+<!--/WIZD_IF_NO_MUSIC_FILES-->
+
+</td>
+</tr>
+</table>
+<img src="/spacer.gif" width="1" height="7" border="0">
+<table width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td>
+<!--WIZD_IF_CLIENT_IS_PC-->
+<BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR>
+<!--/WIZD_IF_CLIENT_IS_PC-->
+<!--WIZD_IF_CLIENT_IS_NOT_PC-->
+<BR><BR><BR><BR><BR><BR><BR><BR><BR>
+<!--/WIZD_IF_CLIENT_IS_NOT_PC-->
+</td>
+<td></td>
+</tr>
+<tr>
+<td align="left" valign="top" class="date"><!--WIZD_INSERT_SERVER_NAME--> - <!--WIZD_INSERT_CURRENT_DIR_NAME--></td>
+<td align="right" valign="top" class="date" nowrap><!--WIZD_INSERT_CURRENT_DATE-->&nbsp;<!--WIZD_INSERT_CURRENT_TIME--></td>
+</tr>
+</table>
+
+<!--WIZD_INSERT_SECRET_DIR_LINK-->
+
+</body>
+</html>

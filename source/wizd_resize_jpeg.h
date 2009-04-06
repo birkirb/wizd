@@ -12,7 +12,7 @@
 #define TARGET_JPEG_HEIGHT	480
 
 // 画像を横長にします(1.0=等倍) (default)
-#define WIDEN_RATIO		1.125
+#define WIDEN_RATIO		1.0
 
 // とりあえず上限サイズを決めておきます
 #define MAX_JPEG_WIDTH	50000
