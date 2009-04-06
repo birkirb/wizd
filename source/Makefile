@@ -13,11 +13,11 @@ CFLAGS += -D_LARGEFILE_SOURCE
 ### -- If you dont want to use JPEG resize feature, comment it out.
 CFLAGS += -DRESIZE_JPEG
 CFLAGS += -I/usr/local/include
-LDFLAGS += -static -L/usr/local/lib -ljpeg -ldvdread -lm -ldl
+LDFLAGS += -L/usr/local/lib -ljpeg -ldvdread -lm -ldl
 
 # keep the following lines only if you have the w32api library
-#LDFLAGS += -L/lib/w32api -lole32 -luuid
-#CFLAGS += -DHAVE_W32API
+# LDFLAGS += -L/lib/w32api -lole32 -luuid
+# CFLAGS += -DHAVE_W32API
 
 ### --
 LDFLAGS += -s	# strip symbols
@@ -26,15 +26,15 @@ LDFLAGS += -s	# strip symbols
 
 # not tested... if you wanna use them, config it by yourself
 #WINCC = i386-cygwin32-gcc
-#WINCC = mingw32-gcc
-#WINCFLAGS = -pipe -O2 -Wall
-#WINCFLAGS += -s	# -s means strip :)
-#WINCFLAGS += -D_FILE_OFFSET_BITS=64
-#WINCFLAGS += -DUTF8_INPUT_ENABLE
-#WINCFLAGS += -D_LARGEFILE_SOURCE
-#WINCFLAGS += -mcygwin
-#WINCFLAGS += -I/usr/local/include
-#WINLDFLAGS += -L/usr/local/lib -ljpeg -ldvdread
+WINCC = mingw32-gcc
+WINCFLAGS = -pipe -O2 -Wall
+WINCFLAGS += -s	# -s means strip :)
+WINCFLAGS += -D_FILE_OFFSET_BITS=64
+WINCFLAGS += -DUTF8_INPUT_ENABLE
+WINCFLAGS += -D_LARGEFILE_SOURCE
+WINCFLAGS += -mcygwin
+WINCFLAGS += -I/usr/local/include
+WINLDFLAGS += -L/usr/local/lib -ljpeg -ldvdread
 
 all:	wizd
 

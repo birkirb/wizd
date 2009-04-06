@@ -23,7 +23,10 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <libgen.h>
-//#include <sys/cygwin.h>
+
+#ifdef HAVE_W32API
+#include <sys/cygwin.h>
+#endif
 
 #include "wizd.h"
 #include "wizd_skin.h"

@@ -27,7 +27,10 @@
 #include <errno.h>
 #include <libgen.h>
 #include <regex.h>
-//#include <sys/cygwin.h>
+
+#ifdef HAVE_W32API
+#include <sys/cygwin.h>
+#endif
 
 #include <dvdread/dvd_reader.h>
 #include <dvdread/ifo_types.h>
